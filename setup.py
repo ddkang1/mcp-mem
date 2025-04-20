@@ -13,7 +13,7 @@ setup(
         "mcp>=1.2.0",
         "uvicorn>=0.15.0",
         "starlette>=0.17.1",
-        "hipporag>=0.1.0",
+        "hipporag",
     ],
     extras_require={
         "dev": [

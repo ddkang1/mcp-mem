@@ -51,6 +51,8 @@ mcp-mem --sse --host 127.0.0.1 --port 3001
 
 ## Configuration
 
+### Basic Configuration
+
 To use this tool with Claude in Windsurf, add the following configuration to your MCP config file:
 
 ```json
@@ -65,6 +67,28 @@ To use this tool with Claude in Windsurf, add the following configuration to you
 ```
 
 The `command` field should point to the directory where you installed the python package using pip.
+
+### Environment Variable Configuration
+
+You can configure the LLM and embedding models used by mcp-mem through environment variables:
+
+- `EMBEDDING_MODEL_NAME`: Name of the embedding model to use (default: "text-embedding-3-large")
+- `EMBEDDING_BASE_URL`: Base URL for the embedding API (optional)
+- `LLM_NAME`: Name of the LLM model to use (default: "gpt-4o-mini")
+- `LLM_BASE_URL`: Base URL for the LLM API (optional)
+- `OPENAI_API_KEY`: OpenAI API key (required for HippoRAG to function properly)
+
+Example usage:
+
+```bash
+EMBEDDING_MODEL_NAME="your-model" LLM_NAME="your-llm" mcp-mem
+```
+
+For convenience, you can use the provided example script:
+
+```bash
+./examples/run_with_env_vars.sh
+```
 
 ## Available Tools
 

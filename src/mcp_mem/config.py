@@ -34,11 +34,10 @@ class MemoryConfig:
         # Set default HippoRAG configuration if not provided
         if not self.hipporag_config:
             self.hipporag_config = {
-                "embedding_model_name": "sentence-transformers/all-mpnet-base-v2",
-                "synonymy_edge_topk": 5,
-                "synonymy_edge_sim_threshold": 0.7,
-                "retrieval_top_k": 10,
-                "qa_top_k": 5,
+                "llm_base_url": os.environ.get("LLM_BASE_URL", None),
+                "llm_name": os.environ.get("LLM_NAME", 'gpt-4o-mini'),
+                "embedding_base_url": os.environ.get("EMBEDDING_BASE_URL", None),
+                "embedding_model_name": os.environ.get("EMBEDDING_MODEL_NAME", "text-embedding-3-large"),
             }
 
 

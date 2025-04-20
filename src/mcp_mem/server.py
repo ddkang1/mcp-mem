@@ -71,7 +71,7 @@ def initialize_hipporag(session_id: str) -> Optional[HippoRAG]:
     
     # Apply HippoRAG configuration from our config
     for key, value in config.hipporag_config.items():
-        if hasattr(hippo_config, key):
+        if hasattr(hippo_config, key) and value is not None:
             setattr(hippo_config, key, value)
     
     return HippoRAG(
