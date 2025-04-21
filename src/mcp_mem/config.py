@@ -13,7 +13,7 @@ class MemoryConfig:
     memory_dir: str = os.path.expanduser("~/.mcp-mem")
     
     # Maximum number of memories to return in retrieve_memory
-    # default_retrieve_limit: int = 10
+    default_retrieve_limit: Optional[int] = None
     
     # HippoRAG configuration
     hipporag_config: Dict[str, Any] = field(default_factory=dict)

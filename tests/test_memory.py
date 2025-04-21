@@ -120,7 +120,7 @@ class TestMemoryTools:
         with_query_result.doc_scores = [0.95]
         mock_hipporag.retrieve.return_value = [with_query_result]
         
-        result = await retrieve_memory(session_id, query="memory 1")
+        result = await retrieve_memory(session_id, query="memory 1", limit=10)
         
         # Check that HippoRAG was used for retrieval
         mock_hipporag.retrieve.assert_called_once_with(["memory 1"], num_to_retrieve=10)

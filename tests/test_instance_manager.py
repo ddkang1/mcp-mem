@@ -2,6 +2,8 @@
 
 import unittest
 import time
+import pytest
+import pytest_asyncio
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 
@@ -118,7 +120,8 @@ class TestHippoRAGInstanceManager(unittest.TestCase):
         # Verify session1 still exists
         self.assertTrue(self.manager.contains("session1"))
 
-    def test_access_updates_timestamp(self):
+    @pytest.mark.asyncio
+    async def test_access_updates_timestamp(self):
         """Test that accessing an instance updates its timestamp."""
         # Add an instance
         self.manager.add("session1", self.mock_hipporag)
@@ -130,7 +133,7 @@ class TestHippoRAGInstanceManager(unittest.TestCase):
         time.sleep(0.1)
         
         # Access the instance
-        self.manager.get("session1")
+        await self.manager.get("session1")
         
         # Verify timestamp was updated
         self.assertGreater(self.manager._last_accessed["session1"], initial_timestamp)
@@ -192,6 +195,9 @@ class TestHippoRAGInstanceManager(unittest.TestCase):
         # Setup
         manager = HippoRAGInstanceManager()
         manager._get_session_path = MagicMock(return_value="/tmp/memory/session_test")
+        
+        # Reset the mock to clear the call from __init__
+        mock_os.makedirs.reset_mock()
         
         # Test
         manager._ensure_session_exists("test-session")

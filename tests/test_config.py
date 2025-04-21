@@ -13,7 +13,7 @@ class TestConfig:
         config = get_config()
         
         assert config.memory_dir == os.path.expanduser("~/.mcp-mem")
-        assert config.default_retrieve_limit == 10
+        assert config.default_retrieve_limit is None
         assert isinstance(config.hipporag_config, dict)
         assert isinstance(config.default_metadata, dict)
         assert config.session_ttl_days is None
