@@ -13,10 +13,7 @@ class MemoryConfig:
     memory_dir: str = os.path.expanduser("~/.mcp-mem")
     
     # Maximum number of memories to return in retrieve_memory
-    default_retrieve_limit: int = 10
-    
-    # Whether to use HippoRAG for advanced memory features
-    use_hipporag: bool = True
+    # default_retrieve_limit: int = 10
     
     # HippoRAG configuration
     hipporag_config: Dict[str, Any] = field(default_factory=dict)
@@ -26,6 +23,10 @@ class MemoryConfig:
     
     # Session cleanup settings
     session_ttl_days: Optional[int] = None  # None means no automatic cleanup
+    
+    # Instance TTL settings (in minutes)
+    # After this period of inactivity, hipporag instances will be offloaded from memory
+    instance_ttl_minutes: int = 30  # Default 30 minutes
     
     def __post_init__(self):
         """Ensure memory directory exists and set up default HippoRAG config."""

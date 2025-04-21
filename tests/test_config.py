@@ -14,7 +14,6 @@ class TestConfig:
         
         assert config.memory_dir == os.path.expanduser("~/.mcp-mem")
         assert config.default_retrieve_limit == 10
-        assert config.use_hipporag is True
         assert isinstance(config.hipporag_config, dict)
         assert isinstance(config.default_metadata, dict)
         assert config.session_ttl_days is None
@@ -30,26 +29,22 @@ class TestConfig:
         # Update config
         updated_config = update_config({
             "memory_dir": "/tmp/test-mcp-mem",
-            "default_retrieve_limit": 20,
-            "use_hipporag": False
+            "default_retrieve_limit": 20
         })
         
         # Check that the config was updated
         assert updated_config.memory_dir == "/tmp/test-mcp-mem"
         assert updated_config.default_retrieve_limit == 20
-        assert updated_config.use_hipporag is False
         
         # Check that get_config returns the updated config
         current_config = get_config()
         assert current_config.memory_dir == "/tmp/test-mcp-mem"
         assert current_config.default_retrieve_limit == 20
-        assert current_config.use_hipporag is False
         
         # Restore original config
         update_config({
             "memory_dir": original_memory_dir,
-            "default_retrieve_limit": original_retrieve_limit,
-            "use_hipporag": True
+            "default_retrieve_limit": original_retrieve_limit
         })
 
     def test_memory_config_post_init(self, tmp_path):
@@ -67,7 +62,7 @@ class TestConfig:
         
         # Default HippoRAG config should be set
         assert "embedding_model_name" in config.hipporag_config
-        assert "retrieval_top_k" in config.hipporag_config
+        assert "llm_name" in config.hipporag_config
 
     def test_invalid_config_update(self):
         """Test that updating with invalid keys doesn't change the config."""

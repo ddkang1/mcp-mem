@@ -4,21 +4,22 @@ A Model Context Protocol (MCP) server implementing memory solutions for data-ric
 
 ## Overview
 
-This MCP server implements a memory solution for data-rich applications that involve searching information from many sources including uploaded files. It uses HippoRAG internally to manage memory through an efficient knowledge graph.
+This MCP server implements a memory solution for data-rich applications that involve searching information from many sources including uploaded files. It uses HippoRAG internally to manage memory through an efficient knowledge graph. HippoRAG is a required dependency for this package.
 
 ## Features
 
 - **Session-based Memory**: Create and manage memory for specific chat sessions
-- **Efficient Knowledge Graph**: Uses HippoRAG for advanced memory management
+- **Efficient Knowledge Graph**: Uses HippoRAG for memory management
 - **Multiple Transport Support**: Works with both stdio and SSE transports
 - **Search Capabilities**: Search information from various sources including uploaded files
+- **Automatic Resource Management**: TTL-based cleanup for both sessions and memory instances
 
 ## Installation
 
 Install from PyPI:
 
 ```bash
-pip install mcp-mem
+pip install mcp-mem hipporag
 ```
 
 Or install from source:
@@ -27,7 +28,10 @@ Or install from source:
 git clone https://github.com/ddkang1/mcp-mem.git
 cd mcp-mem
 pip install -e .
+pip install hipporag
 ```
+
+Note: HippoRAG is a required dependency for mcp-mem to function.
 
 ## Usage
 
@@ -76,7 +80,20 @@ You can configure the LLM and embedding models used by mcp-mem through environme
 - `EMBEDDING_BASE_URL`: Base URL for the embedding API (optional)
 - `LLM_NAME`: Name of the LLM model to use (default: "gpt-4o-mini")
 - `LLM_BASE_URL`: Base URL for the LLM API (optional)
-- `OPENAI_API_KEY`: OpenAI API key (required for HippoRAG to function properly)
+- `OPENAI_API_KEY`: OpenAI API key (required)
+
+### Memory Management Configuration
+
+The server includes automatic resource management features:
+
+- **Session TTL**: Automatically removes session directories after a specified number of days of inactivity.
+  Set using the `session_ttl_days` configuration parameter (default: None - disabled).
+
+- **Instance TTL**: Automatically offloads HippoRAG instances from memory after a specified period of inactivity.
+  Set using the `instance_ttl_minutes` configuration parameter (default: 30 minutes).
+  
+  This feature helps manage memory usage by unloading inactive instances while preserving the underlying data.
+  When an offloaded instance is accessed again, it will be automatically reloaded from disk.
 
 Example usage:
 

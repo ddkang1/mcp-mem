@@ -31,7 +31,6 @@ def test_config(temp_memory_dir):
     test_config = update_config({
         "memory_dir": temp_memory_dir,
         "default_retrieve_limit": 5,
-        "use_hipporag": False,  # Disable HippoRAG for most tests
         "default_metadata": {"test": True},
         "session_ttl_days": None
     })
@@ -42,7 +41,6 @@ def test_config(temp_memory_dir):
     update_config({
         "memory_dir": original_config.memory_dir,
         "default_retrieve_limit": original_config.default_retrieve_limit,
-        "use_hipporag": original_config.use_hipporag,
         "default_metadata": original_config.default_metadata,
         "session_ttl_days": original_config.session_ttl_days
     })

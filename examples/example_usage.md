@@ -4,10 +4,10 @@ This document demonstrates how to use the MCP Memory tool effectively in various
 
 ## Basic Setup
 
-First, install the package:
+First, install the package with its required dependency:
 
 ```bash
-pip install mcp-mem
+pip install mcp-mem hipporag
 ```
 
 Then, you can run the server:
