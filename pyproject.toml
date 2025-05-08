@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-mem"
-version = "0.3.0"
+version = "0.3.1"
 description = "An MCP server implementing memory solution for data-rich applications"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,10 +20,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 dependencies = [
-    "mcp>=1.2.0",
-    "uvicorn>=0.15.0",
-    "starlette>=0.17.1",
-    "hipporag @ git+https://github.com/ddkang1/HippoRAG.git@474ae76bac27c7f9e60f9cf443f9ab41d7183ee7"
+    "fastmcp>=2.2.10",
+    "hipporag @ git+https://github.com/ddkang1/HippoRAG.git@670386a2a2f2e2b0048f0b32296e3a37818c58d4"
 ]
 
 [project.optional-dependencies]

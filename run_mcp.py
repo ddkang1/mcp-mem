@@ -15,15 +15,27 @@ if __name__ == "__main__":
     
     # Transport options
     parser.add_argument(
-        "--sse",
+        "--transport",
+        type=str,
+        default="stdio",
+        choices=["stdio", "sse"],
+        help="Transport protocol to use (stdio or sse)"
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind to (for SSE transport)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to listen on (for SSE transport)"
+    )
+    parser.add_argument(
+        "--debug",
         action="store_true",
-        help="Run the server with SSE transport rather than STDIO (default: False)",
-    )
-    parser.add_argument(
-        "--host", default=None, help="Host to bind to (default: 127.0.0.1)"
-    )
-    parser.add_argument(
-        "--port", type=int, default=None, help="Port to listen on (default: 8000)"
+        help="Enable debug mode with verbose logging"
     )
     
     # Memory configuration options
@@ -63,14 +75,22 @@ if __name__ == "__main__":
     
     # Pass transport arguments to main function
     sys.argv = [sys.argv[0]]
-    if args.sse:
-        sys.argv.append("--sse")
-    if args.host:
+    
+    # Add transport argument
+    sys.argv.append("--transport")
+    sys.argv.append(args.transport)
+    
+    # Add host and port arguments only for SSE transport
+    if args.transport == "sse":
         sys.argv.append("--host")
         sys.argv.append(args.host)
-    if args.port:
+        
         sys.argv.append("--port")
         sys.argv.append(str(args.port))
+    
+    # Always add debug flag (it will be handled correctly in server.py)
+    if args.debug:
+        sys.argv.append("--debug")
     
     # Start the server
     main()

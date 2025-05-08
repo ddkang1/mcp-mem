@@ -10,22 +10,11 @@ import logging
 import atexit
 from typing import Any, Dict, List, Optional, Set, Union
 from pathlib import Path
-from uuid import uuid4
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp.server.server import FastMCP
 from .config import get_config, MemoryConfig
 from .memory_utils import cleanup_old_sessions
 from .instance_manager import HippoRAGInstanceManager
-from starlette.applications import Starlette
-from mcp.server.sse import SseServerTransport
-from starlette.requests import Request
-from starlette.routing import Mount, Route
-from mcp.server import Server
-import uvicorn
-
-# Import HippoRAG for knowledge graph management
-from hipporag import HippoRAG
-from hipporag.utils.config_utils import BaseConfig
 
 # Configure logging
 logging.basicConfig(
@@ -33,9 +22,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-# Initialize FastMCP server
-mcp = FastMCP("memory")
 
 # Get configuration
 config = get_config()
@@ -46,8 +32,15 @@ hipporag_manager = HippoRAGInstanceManager()
 # Register shutdown handler to ensure clean shutdown of the manager
 atexit.register(hipporag_manager.shutdown)
 
-# Ensure memory directory exists is now handled by the instance manager
-    
+# Initialize FastMCP server
+mcp = FastMCP(
+    name="memory",
+    host="127.0.0.1",
+    port=8000,
+    debug=False,
+    log_level="INFO",
+)
+
 @mcp.tool()
 async def store_memory(session_id: str, content: str) -> Dict[str, Any]:
     """Add memory to a specific session.
@@ -71,7 +64,7 @@ async def store_memory(session_id: str, content: str) -> Dict[str, Any]:
     }
 
 @mcp.tool()
-async def retrieve_memory(session_id: str, query: str, limit: int = None) -> Dict[str, Any]:
+async def retrieve_memory(session_id: str, query: str, limit: Optional[int] = None) -> Dict[str, Any]:
     """Retrieve memory from a specific session.
     
     Args:
@@ -109,54 +102,42 @@ async def retrieve_memory(session_id: str, query: str, limit: int = None) -> Dic
         "memories": retrieved_memories
     }
 
-# The get_hipporag_instance function is no longer needed as hipporag_manager.get now handles creation
-
-def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlette:
-    """Create a Starlette app for SSE transport."""
-    sse = SseServerTransport("/messages/")
-
-    async def handle_sse(request: Request) -> None:
-        async with sse.connect_sse(
-            request.scope,
-            request.receive,
-            request._send,
-        ) as (read_stream, write_stream):
-            await mcp_server.run(
-                read_stream,
-                write_stream,
-                mcp_server.create_initialization_options(),
-            )
-
-    return Starlette(
-        debug=debug,
-        routes=[
-            Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=sse.handle_post_message),
-        ],
-    )
-
 def main():
     """Main entry point for the MCP Memory server."""
-    mcp_server = mcp._mcp_server
-
     parser = argparse.ArgumentParser(description="Run MCP Memory server")
 
     parser.add_argument(
-        "--sse",
+        "--transport",
+        type=str,
+        default="stdio",
+        choices=["stdio", "sse"],
+        help="Transport protocol to use (stdio or sse)"
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind to (for SSE transport)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to listen on (for SSE transport)"
+    )
+    parser.add_argument(
+        "--debug",
         action="store_true",
-        help="Run the server with SSE transport rather than STDIO (default: False)",
-    )
-    parser.add_argument(
-        "--host", default=None, help="Host to bind to (default: 127.0.0.1)"
-    )
-    parser.add_argument(
-        "--port", type=int, default=None, help="Port to listen on (default: 8000)"
+        help="Enable debug mode with verbose logging"
     )
     args = parser.parse_args()
 
-    if not args.sse and (args.host or args.port):
-        parser.error("Host and port arguments are only valid when using SSE transport.")
-        sys.exit(1)
+    # Configure logging level based on debug flag
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     # Clean up old sessions if TTL is configured
     if config.session_ttl_days:
@@ -166,18 +147,30 @@ def main():
 
     # Log startup
     logger.info("Starting Memory MCP Server...")
-
-    print("Starting Memory MCP Server...")
+    print(f"Starting Memory MCP Server with {args.transport} transport...")
     
-    if args.sse:
-        starlette_app = create_starlette_app(mcp_server, debug=True)
-        uvicorn.run(
-            starlette_app,
-            host=args.host if args.host else "127.0.0.1",
-            port=args.port if args.port else 8000,
-        )
-    else:
-        mcp.run()
+    # Run the server with the specified transport
+    try:
+        # Set debug mode in the server settings
+        mcp.settings.debug = args.debug
+        
+        if args.transport == "stdio":
+            # For stdio transport, don't pass host and port
+            mcp.run(transport="stdio")
+        else:
+            # For SSE transport, pass only host and port
+            mcp.run(
+                transport="sse",
+                host=args.host,
+                port=args.port,
+                log_level="debug" if args.debug else "info"
+            )
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received. Shutting down server...")
+    finally:
+        # Clean up resources
+        hipporag_manager.shutdown()
+        logger.info("Server shutdown complete.")
 
 if __name__ == "__main__":
     main()
