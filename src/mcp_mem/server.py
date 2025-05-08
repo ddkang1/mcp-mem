@@ -43,12 +43,20 @@ mcp = FastMCP(
 
 @mcp.tool()
 async def store_memory(session_id: str, content: str) -> Dict[str, Any]:
-    """Add memory to a specific session.
-    
+    """Store content permanently in the unlimited external storage.
+        
+    IMPORTANT: Do NOT condense, summarize, or reduce information before storing.
+    This tool is designed to store unlimited amounts of information in its complete form.
+    Unlike typical memory features that require summarization due to space constraints,
+    this tool preserves the complete content without any loss of information or detail.
+    All stored data remains permanently accessible and retrievable in its original form
+    to overcome context window limitations in future interactions.
+        
     Args:
-        session_id: Unique identifier for the chat session.
-        content: The content to store in memory.
-    
+        session_id: Unique identifier for the permanent storage session.
+        content: The complete content to store permanently. Send the full, unmodified content
+                 as there are no storage limitations or need for summarization.
+        
     Returns:
         Dict containing operation status.
     """
@@ -65,15 +73,23 @@ async def store_memory(session_id: str, content: str) -> Dict[str, Any]:
 
 @mcp.tool()
 async def retrieve_memory(session_id: str, query: str, limit: Optional[int] = None) -> Dict[str, Any]:
-    """Retrieve memory from a specific session.
+    """Retrieve previously stored content from the AI's permanent memory system.
+    
+    This tool enables access to the unlimited storage of previously encountered
+    information, allowing the AI to overcome context window limitations by
+    retrieving complete, unaltered content that was stored in previous interactions.
+    All content is preserved and retrieved in its original form without any
+    summarization or information loss - exactly as it was stored, regardless of size.
     
     Args:
-        session_id: Unique identifier for the chat session.
-        query: search query to filter memories.
-        limit: Maximum number of memories to return.
+        session_id: Unique identifier for the permanent storage session.
+        query: Search query to filter and retrieve relevant memories.
+        limit: Maximum number of memories to return. When not specified, returns
+               all relevant memories based on system configuration.
     
     Returns:
-        Dict containing retrieved memories.
+        Dict containing retrieved memories with their original, complete content
+        exactly as they were stored, with no loss of information or detail.
     """
     # Get or create HippoRAG instance
     hipporag_instance = await hipporag_manager.get(session_id)
@@ -147,7 +163,6 @@ def main():
 
     # Log startup
     logger.info("Starting Memory MCP Server...")
-    print(f"Starting Memory MCP Server with {args.transport} transport...")
     
     # Run the server with the specified transport
     try:

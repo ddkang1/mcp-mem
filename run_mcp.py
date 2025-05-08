@@ -53,7 +53,7 @@ if __name__ == "__main__":
         "--retrieve-limit",
         type=int,
         default=None,
-        help="Default number of memories to retrieve (default: 10)",
+        help="Default number of memories to retrieve",
     )
     
     args = parser.parse_args()
