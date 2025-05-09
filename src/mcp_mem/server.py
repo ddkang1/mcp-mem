@@ -8,13 +8,14 @@ import json
 import os
 import logging
 import atexit
+import re
 from typing import Any, Dict, List, Optional, Set, Union
 from pathlib import Path
 
 from fastmcp.server.server import FastMCP
-from .config import get_config, MemoryConfig
-from .memory_utils import cleanup_old_sessions
-from .instance_manager import HippoRAGInstanceManager
+from .config import get_config, MemoryConfig, update_config
+from .memory_utils import cleanup_old_sessions, create_session_state, update_session_access
+from .instance_manager import LightRAGInstanceManager
 
 # Configure logging
 logging.basicConfig(
@@ -26,11 +27,11 @@ logger = logging.getLogger(__name__)
 # Get configuration
 config = get_config()
 
-# Create HippoRAG instance manager with TTL-based cleanup
-hipporag_manager = HippoRAGInstanceManager()
+# Create LightRAG instance manager with TTL-based cleanup
+lightrag_manager = LightRAGInstanceManager()
 
 # Register shutdown handler to ensure clean shutdown of the manager
-atexit.register(hipporag_manager.shutdown)
+atexit.register(lightrag_manager.shutdown)
 
 # Initialize FastMCP server
 mcp = FastMCP(
@@ -60,10 +61,16 @@ async def store_memory(session_id: str, content: str) -> Dict[str, Any]:
     Returns:
         Dict containing operation status.
     """
-    # Get or create HippoRAG instance
-    hipporag_instance = await hipporag_manager.get(session_id)
-    hipporag_instance.index([content])
-    logger.info(f"Indexed content in HippoRAG for session {session_id}")
+    # Get or create LightRAG instance
+    lightrag_instance = await lightrag_manager.get(session_id)
+    
+    # Update session state
+    create_session_state(session_id)
+    update_session_access(session_id)
+    
+    # Store content using LightRAG
+    result = await lightrag_instance.insert(content)
+    logger.info(f"Indexed content in LightRAG for session {session_id}")
     
     return {
         "session_id": session_id,
@@ -91,31 +98,134 @@ async def retrieve_memory(session_id: str, query: str, limit: Optional[int] = No
         Dict containing retrieved memories with their original, complete content
         exactly as they were stored, with no loss of information or detail.
     """
-    # Get or create HippoRAG instance
-    hipporag_instance = await hipporag_manager.get(session_id)
+    # Get or create LightRAG instance
+    lightrag_instance = await lightrag_manager.get(session_id)
+    
+    # Update session access time
+    update_session_access(session_id)
     
     # Use default limit if not specified
-    # if limit is None:
-    #     limit = config.default_retrieve_limit
+    if limit is None:
+        limit = config.default_retrieve_limit
     
-    # Use HippoRAG for retrieval
-    retrieval_results = hipporag_instance.retrieve([query], num_to_retrieve=limit)
+    # Use LightRAG for retrieval
+    result = await lightrag_instance.query(
+        query_text=query,
+        mode="hybrid",  # Use hybrid mode to leverage both vector and graph search
+        top_k=limit,
+        only_need_context=True,  # We only need the context, not the LLM response
+    )
     
-    # Format results
+    # Parse the results
     retrieved_memories = []
-    for idx, result in enumerate(retrieval_results):
-        for doc_idx, doc in enumerate(result.docs):
-            retrieved_memories.append({
-                "content": doc,
-                "score": float(result.doc_scores[doc_idx]) if doc_idx < len(result.doc_scores) else 0.0,
-                "rank": doc_idx + 1
-            })
+    
+    try:
+        # Extract document chunks section from the response
+        if isinstance(result.get("response"), str):
+            response = result["response"]
+            # Find the document chunks section
+            chunks_section = re.search(r'-----Document Chunks\(DC\)-----\s*```json\s*(.*?)\s*```', 
+                                      response, re.DOTALL)
+            
+            if chunks_section:
+                chunks_json = chunks_section.group(1).strip()
+                chunks = json.loads(chunks_json)
+                
+                # Format the chunks as memories
+                for idx, chunk in enumerate(chunks):
+                    retrieved_memories.append({
+                        "content": chunk.get("content", ""),
+                        "score": float(chunk.get("score", idx + 1)),
+                        "rank": idx + 1
+                    })
+    except Exception as e:
+        logger.error(f"Error parsing LightRAG results: {str(e)}")
     
     return {
         "session_id": session_id,
         "status": "success",
         "query": query,
         "memories": retrieved_memories
+    }
+
+async def configure_memory(
+    integration_type: Optional[str] = None,
+    lightrag_api_base_url: Optional[str] = None,
+    lightrag_api_key: Optional[str] = None,
+    embedding_provider: Optional[str] = None,
+    embedding_model_name: Optional[str] = None,
+    llm_provider: Optional[str] = None,
+    llm_model_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Configure the memory system.
+    
+    This tool allows you to configure various aspects of the memory system,
+    including the integration type (direct or API), API endpoints, and model settings.
+    
+    Args:
+        integration_type: Integration type, either "direct" or "api".
+        lightrag_api_base_url: Base URL for LightRAG API (for API integration).
+        lightrag_api_key: API key for LightRAG API (for API integration).
+        embedding_provider: Embedding provider, e.g., "openai".
+        embedding_model_name: Embedding model name, e.g., "text-embedding-3-large".
+        llm_provider: LLM provider, e.g., "openai".
+        llm_model_name: LLM model name, e.g., "gpt-4o-mini".
+        
+    Returns:
+        Dict containing operation status and current configuration.
+    """
+    # Create updates dictionary with only provided values
+    updates = {}
+    if integration_type is not None:
+        if integration_type not in ["direct", "api"]:
+            return {
+                "status": "error",
+                "message": "Invalid integration_type. Must be 'direct' or 'api'."
+            }
+        updates["integration_type"] = integration_type
+    
+    if lightrag_api_base_url is not None:
+        updates["lightrag_api_base_url"] = lightrag_api_base_url
+    
+    if lightrag_api_key is not None:
+        updates["lightrag_api_key"] = lightrag_api_key
+    
+    if embedding_provider is not None:
+        updates["embedding_provider"] = embedding_provider
+    
+    if embedding_model_name is not None:
+        updates["embedding_model_name"] = embedding_model_name
+    
+    if llm_provider is not None:
+        updates["llm_provider"] = llm_provider
+    
+    if llm_model_name is not None:
+        updates["llm_model_name"] = llm_model_name
+    
+    # Apply updates if any
+    if updates:
+        update_config(updates)
+        logger.info(f"Updated configuration: {updates}")
+    
+    # Get current configuration
+    current_config = get_config()
+    
+    # Return safe version of configuration (without sensitive data)
+    safe_config = {
+        "integration_type": current_config.integration_type,
+        "lightrag_api_base_url": current_config.lightrag_api_base_url,
+        "lightrag_api_key": "***" if current_config.lightrag_api_key else None,
+        "embedding_provider": current_config.embedding_provider,
+        "embedding_model_name": current_config.embedding_model_name,
+        "llm_provider": current_config.llm_provider,
+        "llm_model_name": current_config.llm_model_name,
+        "default_retrieve_limit": current_config.default_retrieve_limit,
+    }
+    
+    return {
+        "status": "success",
+        "message": "Configuration updated successfully" if updates else "Current configuration retrieved",
+        "configuration": safe_config
     }
 
 def main():
@@ -146,6 +256,22 @@ def main():
         action="store_true",
         help="Enable debug mode with verbose logging"
     )
+    parser.add_argument(
+        "--integration-type",
+        type=str,
+        choices=["direct", "api"],
+        help="Integration type (direct or api)"
+    )
+    parser.add_argument(
+        "--lightrag-api-url",
+        type=str,
+        help="LightRAG API base URL (for API integration)"
+    )
+    parser.add_argument(
+        "--lightrag-api-key",
+        type=str,
+        help="LightRAG API key (for API integration)"
+    )
     args = parser.parse_args()
 
     # Configure logging level based on debug flag
@@ -155,6 +281,19 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
+    # Apply command line configuration
+    updates = {}
+    if args.integration_type:
+        updates["integration_type"] = args.integration_type
+    if args.lightrag_api_url:
+        updates["lightrag_api_base_url"] = args.lightrag_api_url
+    if args.lightrag_api_key:
+        updates["lightrag_api_key"] = args.lightrag_api_key
+    
+    if updates:
+        update_config(updates)
+        logger.info(f"Applied command line configuration: {updates}")
+
     # Clean up old sessions if TTL is configured
     if config.session_ttl_days:
         removed = cleanup_old_sessions()
@@ -163,6 +302,10 @@ def main():
 
     # Log startup
     logger.info("Starting Memory MCP Server...")
+    logger.info(f"Integration type: {config.integration_type}")
+    if config.integration_type == "api":
+        logger.info(f"LightRAG API URL: {config.lightrag_api_base_url}")
+        logger.info(f"LightRAG API key: {'configured' if config.lightrag_api_key else 'not configured'}")
     
     # Run the server with the specified transport
     try:
@@ -184,7 +327,7 @@ def main():
         logger.info("Keyboard interrupt received. Shutting down server...")
     finally:
         # Clean up resources
-        hipporag_manager.shutdown()
+        lightrag_manager.shutdown()
         logger.info("Server shutdown complete.")
 
 if __name__ == "__main__":

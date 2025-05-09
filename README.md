@@ -1,150 +1,202 @@
-# MCP Memory
+# MCP Memory Server
 
-A Model Context Protocol (MCP) server implementing memory solutions for data-rich applications with efficient knowledge graph capabilities.
+A Model Context Protocol (MCP) server that provides permanent external memory capabilities for LLMs using LightRAG.
 
 ## Overview
 
-This MCP server implements a memory solution for data-rich applications that involve searching information from many sources including uploaded files. It uses HippoRAG internally to manage memory through an efficient knowledge graph. HippoRAG is a required dependency for this package.
+MCP Memory Server enables LLMs to store and retrieve information without context window limitations. It provides a permanent, external memory system that preserves complete information without summarization or information loss.
+
+The server uses LightRAG, a powerful Retrieval-Augmented Generation system that combines vector search with knowledge graph capabilities for more effective information retrieval.
 
 ## Features
 
-- **Session-based Memory**: Create and manage memory for specific chat sessions
-- **Efficient Knowledge Graph**: Uses HippoRAG for memory management
-- **Multiple Transport Support**: Works with both stdio and SSE transports
-- **Search Capabilities**: Search information from various sources including uploaded files
-- **Automatic Resource Management**: TTL-based cleanup for both sessions and memory instances
+- **Permanent Storage**: Store unlimited amounts of information that persists across sessions
+- **Graph-Enhanced Retrieval**: Leverage LightRAG's knowledge graph capabilities for more contextual retrieval
+- **Session Management**: Organize memories by session ID for different use cases
+- **TTL-Based Cleanup**: Automatically clean up old sessions and offload inactive instances
+- **MCP Protocol**: Seamless integration with any MCP-compatible client
+- **Flexible Integration**: Support for both direct integration and API-based approaches
 
 ## Installation
 
-Install from PyPI:
-
 ```bash
-pip install mcp-mem hipporag
+pip install mcp-mem
 ```
 
-Or install from source:
+## Integration Options
+
+MCP Memory Server supports two integration approaches:
+
+### 1. Direct Integration
+
+Direct integration instantiates LightRAG objects directly in the same process as the MCP server. This approach is simpler to set up and has lower latency, but requires all dependencies to be installed locally.
 
 ```bash
-git clone https://github.com/ddkang1/mcp-mem.git
-cd mcp-mem
-pip install -e .
-pip install hipporag
+# Run with direct integration (default)
+mcp-mem --integration-type direct
 ```
 
-Note: HippoRAG is a required dependency for mcp-mem to function.
+### 2. API-Based Integration
+
+API-based integration connects to a separate LightRAG API server. This approach allows for better resource isolation and centralized knowledge management, but requires a separate LightRAG server to be running.
+
+```bash
+# Run with API integration
+mcp-mem --integration-type api --lightrag-api-url http://localhost:8000 --lightrag-api-key your_api_key
+```
 
 ## Usage
 
-You can run the MCP server directly:
+### Starting the Server
 
 ```bash
-mcp-mem
+# Using stdio transport (for integration with MCP clients)
+mcp-mem --transport stdio
+
+# Using SSE transport (for HTTP-based access)
+mcp-mem --transport sse --host 127.0.0.1 --port 8000
 ```
 
-By default, it uses stdio transport. To use SSE transport:
+### Environment Variables
 
-```bash
-mcp-mem --sse
+Configure the server using these environment variables:
+
+- `OPENAI_API_KEY`: Your OpenAI API key (required for embeddings and LLM)
+- `OPENAI_API_BASE`: Custom base URL for OpenAI API (optional)
+- `LIGHTRAG_API_BASE_URL`: Base URL for LightRAG API (for API integration)
+- `LIGHTRAG_API_KEY`: API key for LightRAG API (for API integration)
+
+### Command Line Options
+
+```
+usage: mcp-mem [-h] [--transport {stdio,sse}] [--host HOST] [--port PORT] [--debug]
+               [--integration-type {direct,api}] [--lightrag-api-url LIGHTRAG_API_URL]
+               [--lightrag-api-key LIGHTRAG_API_KEY]
+
+Run MCP Memory server
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --transport {stdio,sse}
+                        Transport protocol to use (stdio or sse)
+  --host HOST           Host to bind to (for SSE transport)
+  --port PORT           Port to listen on (for SSE transport)
+  --debug               Enable debug mode with verbose logging
+  --integration-type {direct,api}
+                        Integration type (direct or api)
+  --lightrag-api-url LIGHTRAG_API_URL
+                        LightRAG API base URL (for API integration)
+  --lightrag-api-key LIGHTRAG_API_KEY
+                        LightRAG API key (for API integration)
 ```
 
-You can also specify host and port for SSE transport:
+## MCP Tools
 
-```bash
-mcp-mem --sse --host 127.0.0.1 --port 3001
-```
+### store_memory
 
-## Configuration
-
-### Basic Configuration
-
-To use this tool with Claude in Windsurf, add the following configuration to your MCP config file:
+Store content permanently in the external memory system.
 
 ```json
-"memory": {
-    "command": "/path/to/mcp-mem",
-    "args": [],
-    "type": "stdio",
-    "pollingInterval": 30000,
-    "startupTimeout": 30000,
-    "restartOnFailure": true
+{
+  "session_id": "user123",
+  "content": "The complete content to store"
 }
 ```
 
-The `command` field should point to the directory where you installed the python package using pip.
+### retrieve_memory
 
-### Environment Variable Configuration
+Retrieve previously stored content based on a query.
 
-You can configure the LLM and embedding models used by mcp-mem through environment variables:
-
-- `EMBEDDING_MODEL_NAME`: Name of the embedding model to use (default: "text-embedding-3-large")
-- `EMBEDDING_BASE_URL`: Base URL for the embedding API (optional)
-- `LLM_NAME`: Name of the LLM model to use (default: "gpt-4o-mini")
-- `LLM_BASE_URL`: Base URL for the LLM API (optional)
-- `OPENAI_API_KEY`: OpenAI API key (required)
-
-### Memory Management Configuration
-
-The server includes automatic resource management features:
-
-- **Session TTL**: Automatically removes session directories after a specified number of days of inactivity.
-  Set using the `session_ttl_days` configuration parameter (default: None - disabled).
-
-- **Instance TTL**: Automatically offloads HippoRAG instances from memory after a specified period of inactivity.
-  Set using the `instance_ttl_minutes` configuration parameter (default: 30 minutes).
-  
-  This feature helps manage memory usage by unloading inactive instances while preserving the underlying data.
-  When an offloaded instance is accessed again, it will be automatically reloaded from disk.
-
-Example usage:
-
-```bash
-EMBEDDING_MODEL_NAME="your-model" LLM_NAME="your-llm" mcp-mem
+```json
+{
+  "session_id": "user123",
+  "query": "What information do we have about climate change?",
+  "limit": 5
+}
 ```
 
-For convenience, you can use the provided example script:
+### configure_memory
 
-```bash
-./examples/run_with_env_vars.sh
+Configure the memory system.
+
+```json
+{
+  "integration_type": "api",
+  "lightrag_api_base_url": "http://localhost:8000",
+  "lightrag_api_key": "your_api_key",
+  "embedding_provider": "openai",
+  "embedding_model_name": "text-embedding-3-large",
+  "llm_provider": "openai",
+  "llm_model_name": "gpt-4o-mini"
+}
 ```
 
-## Available Tools
+## How It Works
 
-The MCP server provides the following tools:
+MCP Memory Server uses LightRAG to provide sophisticated memory capabilities:
 
-- **create_memory**: Create a new memory for a given chat session
-- **store_memory**: Add memory to a specific session
-- **retrieve_memory**: Retrieve memory from a specific session
+1. **Storage**: Content is processed through LightRAG's pipeline:
+   - Text is split into manageable chunks
+   - Entities and relationships are extracted to build a knowledge graph
+   - Vector embeddings are created for semantic search
+   - Original content is preserved without loss
 
-## Development
+2. **Retrieval**: When queried, the system:
+   - Uses hybrid search combining vector similarity and graph traversal
+   - Finds the most relevant information based on the query
+   - Returns complete, unaltered content as it was stored
 
-### Installation for Development
+3. **Graph-Enhanced Context**: LightRAG's knowledge graph:
+   - Captures relationships between entities in the stored content
+   - Enables more contextual retrieval by traversing related information
+   - Improves retrieval quality beyond simple vector similarity
 
-```bash
-git clone https://github.com/ddkang1/mcp-mem.git
-cd mcp-mem
-pip install -e ".[dev]"
-```
+## Integration Comparison
 
-### Running Tests
+### Direct Integration
 
-```bash
-pytest
-```
+**Advantages:**
+- Simpler deployment (single process)
+- Lower latency (no network overhead)
+- Direct access to all LightRAG features
+- Each MCP server has its own LightRAG instances
 
-### Code Style
+**Best for:**
+- Simpler deployments with fewer moving parts
+- Minimizing latency
+- Session isolation for privacy or multi-tenant scenarios
+- Resource-constrained environments
+- Smaller-scale applications
 
-This project uses Black for formatting, isort for import sorting, and flake8 for linting:
+### API-Based Integration
 
-```bash
-black src tests
-isort src tests
-flake8 src tests
-```
+**Advantages:**
+- LightRAG runs as a dedicated service
+- Can scale LightRAG independently from the MCP server
+- Multiple clients/applications can access the same LightRAG instance
+- Knowledge is shared across all clients
+- Better resource isolation
 
-## Contributing
+**Best for:**
+- Centralized knowledge base shared across multiple applications
+- Microservices architecture
+- Independent scaling of components
+- High resource requirements that benefit from isolation
+- Supporting multiple programming languages/frameworks
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## Examples
+
+See the `examples` directory for example scripts:
+
+- `basic_usage.py`: Demonstrates how to use the MCP Memory server with both direct and API-based integration
+
+## Use Cases
+
+- **Document Interaction**: Talk to multiple documents without context limitations
+- **Knowledge Management**: Build and query persistent knowledge bases
+- **Agent Memory**: Provide agents with permanent memory capabilities
+- **Long-term Conversations**: Maintain conversation history across multiple sessions
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT

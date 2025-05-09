@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Run script for the MCP Memory server.
-
-This script provides a convenient way to start the MCP Memory server
-with various configuration options.
+Simple script to run the MCP Memory server.
+This is a convenience wrapper around the mcp_mem.server module.
 """
 
-import argparse
 import sys
-from mcp_mem import main, update_config, get_config
+import os
+import logging
+import argparse
+from mcp_mem.server import main
+from mcp_mem.config import update_config
 
 if __name__ == "__main__":
+    # Parse command line arguments
     parser = argparse.ArgumentParser(description="Run MCP Memory server")
-    
-    # Transport options
     parser.add_argument(
         "--transport",
         type=str,
@@ -23,6 +23,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--host",
+        type=str,
         default="127.0.0.1",
         help="Host to bind to (for SSE transport)"
     )
@@ -37,60 +38,50 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable debug mode with verbose logging"
     )
-    
-    # Memory configuration options
     parser.add_argument(
-        "--memory-dir",
-        default=None,
-        help="Directory to store memory data (default: ~/.mcp-mem)",
+        "--integration-type",
+        type=str,
+        choices=["direct", "api"],
+        help="Integration type (direct or api)"
     )
     parser.add_argument(
-        "--disable-hipporag",
-        action="store_true",
-        help="Disable HippoRAG and use basic memory storage",
+        "--lightrag-api-url",
+        type=str,
+        help="LightRAG API base URL (for API integration)"
     )
     parser.add_argument(
-        "--retrieve-limit",
-        type=int,
-        default=None,
-        help="Default number of memories to retrieve",
+        "--lightrag-api-key",
+        type=str,
+        help="LightRAG API key (for API integration)"
     )
     
+    # Parse arguments and update sys.argv for the main function
     args = parser.parse_args()
-    
-    # Update configuration based on command-line arguments
-    config_updates = {}
-    
-    if args.memory_dir:
-        config_updates["memory_dir"] = args.memory_dir
-    
-    if args.disable_hipporag:
-        config_updates["use_hipporag"] = False
-    
-    if args.retrieve_limit:
-        config_updates["default_retrieve_limit"] = args.retrieve_limit
-    
-    if config_updates:
-        update_config(config_updates)
-    
-    # Pass transport arguments to main function
     sys.argv = [sys.argv[0]]
     
-    # Add transport argument
-    sys.argv.append("--transport")
-    sys.argv.append(args.transport)
-    
-    # Add host and port arguments only for SSE transport
-    if args.transport == "sse":
-        sys.argv.append("--host")
-        sys.argv.append(args.host)
-        
-        sys.argv.append("--port")
-        sys.argv.append(str(args.port))
-    
-    # Always add debug flag (it will be handled correctly in server.py)
+    if args.transport:
+        sys.argv.extend(["--transport", args.transport])
+    if args.host:
+        sys.argv.extend(["--host", args.host])
+    if args.port:
+        sys.argv.extend(["--port", str(args.port)])
     if args.debug:
         sys.argv.append("--debug")
+    if args.integration_type:
+        sys.argv.extend(["--integration-type", args.integration_type])
+    if args.lightrag_api_url:
+        sys.argv.extend(["--lightrag-api-url", args.lightrag_api_url])
+    if args.lightrag_api_key:
+        sys.argv.extend(["--lightrag-api-key", args.lightrag_api_key])
     
-    # Start the server
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug else logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    
+    # Add current directory to path to ensure imports work
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    
+    # Run the server
     main()

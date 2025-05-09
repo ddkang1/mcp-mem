@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-mem"
-version = "0.3.2"
+version = "0.4.0"
 description = "An MCP server providing permanent, unlimited AI memory storage to overcome context limitations"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -1,20 +1,15 @@
-"""MCP Memory - A Model Context Protocol server for memory management."""
+"""MCP Memory module for permanent external memory using LightRAG."""
 
-from .__about__ import __version__
-from .server import main, store_memory, retrieve_memory, mcp
-from .instance_manager import HippoRAGInstanceManager
-from .config import get_config, update_config, MemoryConfig
-from .memory_utils import cleanup_old_sessions
+from .config import MemoryConfig, get_config, update_config
+from .instance_manager import LightRAGInstanceManager
+from .lightrag_interface import LightRAGInterface, DirectLightRAG, ApiLightRAG
+from .lightrag_client import LightRAGClient
+from .memory_utils import (
+    cleanup_old_sessions, 
+    create_session_state, 
+    update_session_access,
+    get_session_info,
+    list_sessions
+)
 
-__all__ = [
-    "__version__",
-    "main",
-    "store_memory",
-    "retrieve_memory",
-    "mcp",
-    "get_config",
-    "update_config",
-    "MemoryConfig",
-    "cleanup_old_sessions",
-    "HippoRAGInstanceManager"
-]
+__version__ = "0.2.0"  # Updated version to reflect LightRAG integration
