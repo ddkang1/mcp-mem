@@ -15,6 +15,9 @@ class MemoryConfig:
     # Maximum number of memories to return in retrieve_memory
     default_retrieve_limit: Optional[int] = 5
     
+    # Default search mode for memory retrieval
+    default_search_mode: Literal["hybrid", "local", "global", "mix", "naive"] = "hybrid"
+    
     # Integration type: "direct" or "api"
     integration_type: Literal["direct", "api"] = "direct"
     

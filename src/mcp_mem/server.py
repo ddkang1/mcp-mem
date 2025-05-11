@@ -109,9 +109,13 @@ async def retrieve_memory(session_id: str, query: str, limit: Optional[int] = No
         limit = config.default_retrieve_limit
     
     # Use LightRAG for retrieval
+    # Get the search mode from config, default to "hybrid" if not set
+    search_mode = getattr(config, "default_search_mode", "hybrid")
+    logger.debug(f"Using search mode: {search_mode}")
+    
     result = await lightrag_instance.query(
         query_text=query,
-        mode="hybrid",  # Use hybrid mode to leverage both vector and graph search
+        mode=search_mode,  # Use configured search mode
         top_k=limit,
         only_need_context=True,  # We only need the context, not the LLM response
     )
@@ -197,6 +201,7 @@ async def retrieve_memory(session_id: str, query: str, limit: Optional[int] = No
     # Return the result as a simple dictionary that can be easily serialized
     return result_to_return
 
+@mcp.tool()
 async def configure_memory(
     integration_type: Optional[str] = None,
     lightrag_api_base_url: Optional[str] = None,
@@ -205,11 +210,13 @@ async def configure_memory(
     embedding_model_name: Optional[str] = None,
     llm_provider: Optional[str] = None,
     llm_model_name: Optional[str] = None,
+    search_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Configure the memory system.
     
     This tool allows you to configure various aspects of the memory system,
-    including the integration type (direct or API), API endpoints, and model settings.
+    including the integration type (direct or API), API endpoints, model settings,
+    and search behavior.
     
     Args:
         integration_type: Integration type, either "direct" or "api".
@@ -219,6 +226,7 @@ async def configure_memory(
         embedding_model_name: Embedding model name, e.g., "text-embedding-3-large".
         llm_provider: LLM provider, e.g., "openai".
         llm_model_name: LLM model name, e.g., "gpt-4o-mini".
+        search_mode: Search mode for memory retrieval, e.g., "hybrid", "local", "global", "mix", "naive".
         
     Returns:
         Dict containing operation status and current configuration.
@@ -251,6 +259,15 @@ async def configure_memory(
     if llm_model_name is not None:
         updates["llm_model_name"] = llm_model_name
     
+    if search_mode is not None:
+        valid_modes = ["hybrid", "local", "global", "mix", "naive"]
+        if search_mode not in valid_modes:
+            return {
+                "status": "error",
+                "message": f"Invalid search_mode. Must be one of: {', '.join(valid_modes)}."
+            }
+        updates["default_search_mode"] = search_mode
+    
     # Apply updates if any
     if updates:
         update_config(updates)
@@ -269,6 +286,7 @@ async def configure_memory(
         "llm_provider": current_config.llm_provider,
         "llm_model_name": current_config.llm_model_name,
         "default_retrieve_limit": current_config.default_retrieve_limit,
+        "default_search_mode": getattr(current_config, "default_search_mode", "hybrid"),
     }
     
     return {
@@ -276,6 +294,55 @@ async def configure_memory(
         "message": "Configuration updated successfully" if updates else "Current configuration retrieved",
         "configuration": safe_config
     }
+
+@mcp.tool()
+async def get_lightrag_state(session_id: str) -> Dict[str, Any]:
+    """Get the internal state of the LightRAG instance for a session.
+    
+    This tool provides insights into the internal state of the LightRAG instance,
+    including information about stored documents, entities, and relationships.
+    
+    Args:
+        session_id: Unique identifier for the session.
+        
+    Returns:
+        Dict containing internal state information.
+    """
+    # Get or create LightRAG instance
+    lightrag_instance = await lightrag_manager.get(session_id)
+    
+    # Update session access time
+    update_session_access(session_id)
+    
+    # Get internal state
+    state = await lightrag_instance.get_internal_state()
+    
+    # Ensure the state is JSON serializable
+    try:
+        # Try to convert to JSON and back to ensure it's serializable
+        json.dumps(state)
+        return state
+    except TypeError:
+        # If not serializable, create a simplified version
+        simplified_state = {"status": "success", "session_id": session_id}
+        
+        # Handle common non-serializable objects
+        if isinstance(state, dict):
+            for key, value in state.items():
+                # Skip non-serializable values
+                try:
+                    json.dumps(value)
+                    simplified_state[key] = value
+                except TypeError:
+                    # For non-serializable objects, store their string representation or type
+                    if hasattr(value, 'text'):
+                        simplified_state[key] = f"TextContent: {value.text[:100]}..." if len(value.text) > 100 else value.text
+                    elif hasattr(value, 'content'):
+                        simplified_state[key] = f"Content: {str(value.content)[:100]}..." if len(str(value.content)) > 100 else str(value.content)
+                    else:
+                        simplified_state[key] = f"Non-serializable object of type: {type(value).__name__}"
+        
+        return simplified_state
 
 def main():
     """Main entry point for the MCP Memory server."""
