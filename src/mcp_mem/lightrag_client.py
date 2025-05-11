@@ -18,6 +18,7 @@ class LightRAGClient:
         self,
         base_url: str,
         api_key: Optional[str] = None,
+        addon_params: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize LightRAG API client.
@@ -25,9 +26,15 @@ class LightRAGClient:
         Args:
             base_url (str): Base API URL.
             api_key (str, optional): API key (token).
+            addon_params (Dict[str, Any], optional): Additional parameters for entity extraction.
         """
         self.base_url = base_url
         self.api_key = api_key
+        self.addon_params = addon_params or {
+            "language": "English",
+            "entity_types": ["PERSON", "ORGANIZATION", "LOCATION", "DATE", "EVENT", "CONCEPT"],
+            "example_number": 3
+        }
         self.session = None
         logger.info(f"Initialized LightRAG API client: {base_url}")
 
@@ -130,6 +137,7 @@ class LightRAGClient:
             "hl_keywords": hl_keywords or [],
             "ll_keywords": ll_keywords or [],
             "history_turns": history_turns,
+            "addon_params": self.addon_params,
         }
 
         return await self._call_api(
@@ -154,14 +162,20 @@ class LightRAGClient:
         logger.debug(f"Adding text: {str(text)[:100]}...")
 
         if isinstance(text, str):
-            request = {"text": text}
+            request = {
+                "text": text,
+                "addon_params": self.addon_params
+            }
             return await self._call_api(
                 method="POST",
-                endpoint="/documents",
+                endpoint="/documents/text",
                 json_data=request,
             )
         else:
-            request = {"texts": text}
+            request = {
+                "texts": text,
+                "addon_params": self.addon_params
+            }
             return await self._call_api(
                 method="POST",
                 endpoint="/documents/texts",
@@ -181,6 +195,20 @@ class LightRAGClient:
             endpoint="/health",
         )
 
+    async def get_knowledge_graph(self) -> Dict[str, Any]:
+        """
+        Get the knowledge graph from LightRAG.
+        
+        Returns:
+            Dict[str, Any]: Knowledge graph containing nodes and edges
+        """
+        logger.debug("Getting knowledge graph...")
+        return await self._call_api(
+            method="GET",
+            endpoint="/graphs",
+            params={"node_label": "*", "max_depth": 5, "max_nodes": 100}
+        )
+    
     async def close(self):
         """Close HTTP client."""
         if self.session:

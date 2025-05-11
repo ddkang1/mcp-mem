@@ -11,6 +11,7 @@ import json
 import asyncio
 import argparse
 import logging
+import traceback
 from typing import Dict, Any, List, Optional
 from fastmcp.client.client import Client
 
@@ -198,9 +199,11 @@ async def test_retrieve_memory(
         
         if isinstance(result, dict):
             memories = result.get("memories", [])
+            logger.debug(f"Retrieved memories from dict: {len(memories)}")
         elif isinstance(result, list):
             # If result is a list, assume it's a list of memories
             memories = result
+            logger.debug(f"Retrieved memories from list: {len(memories)}")
             # Convert to standard format
             result = {
                 "status": "success",
@@ -210,24 +213,35 @@ async def test_retrieve_memory(
         else:
             # Handle TextContent or other object types
             try:
+                logger.debug(f"Processing result of type: {type(result)}")
+                logger.debug(f"Result attributes: {dir(result) if hasattr(result, '__dict__') else 'No attributes'}")
+                
                 # Try to access text attribute if it exists
                 if hasattr(result, 'text'):
                     content = result.text
+                    logger.debug(f"Found text attribute: {content[:100]}...")
                     # Try to parse as JSON if possible
                     try:
                         parsed = json.loads(content)
                         if isinstance(parsed, dict) and "memories" in parsed:
                             memories = parsed["memories"]
+                            logger.debug(f"Parsed JSON memories: {len(memories)}")
                         else:
                             memories = [{"content": content, "score": 1.0}]
-                    except:
+                            logger.debug("Created single memory from text content")
+                    except json.JSONDecodeError:
+                        logger.debug("Could not parse text as JSON, using as raw content")
                         memories = [{"content": content, "score": 1.0}]
                 elif hasattr(result, 'content'):
                     # If it has content attribute
-                    memories = [{"content": str(result.content), "score": 1.0}]
+                    content_str = str(result.content)
+                    logger.debug(f"Found content attribute: {content_str[:100]}...")
+                    memories = [{"content": content_str, "score": 1.0}]
                 else:
                     # Last resort: convert to string
-                    memories = [{"content": str(result), "score": 1.0}]
+                    result_str = str(result)
+                    logger.debug(f"Using string representation: {result_str[:100]}...")
+                    memories = [{"content": result_str, "score": 1.0}]
                 
                 # Create a standardized result
                 result = {
@@ -237,6 +251,7 @@ async def test_retrieve_memory(
                 }
             except Exception as e:
                 logger.warning(f"Failed to process result of type {type(result)}: {e}")
+                logger.warning(f"Exception details: {traceback.format_exc()}")
                 result = {
                     "status": "error",
                     "message": f"Unexpected result format: {type(result)}",
@@ -511,6 +526,31 @@ async def main():
         is crucial for addressing climate change and creating sustainable energy systems.
         """
         
+        # Clear any existing data to start fresh
+        print("\n===== Clearing Existing Memory Storage =====")
+        try:
+            clear_result = await client.call_tool(
+                "clear_memory_storage",
+                {
+                    "session_id": session_id
+                }
+            )
+            
+            # Handle different result formats
+            if isinstance(clear_result, dict):
+                print(f"Storage cleared: {json.dumps(clear_result, indent=2)}")
+            elif hasattr(clear_result, 'text'):
+                print(f"Storage cleared: {clear_result.text}")
+            elif hasattr(clear_result, 'content'):
+                print(f"Storage cleared: {clear_result.content}")
+            else:
+                print(f"Storage cleared with result type: {type(clear_result)}")
+                
+            logger.info("Storage cleared successfully")
+        except Exception as e:
+            logger.warning(f"Could not clear storage: {e}")
+            logger.warning("Continuing with tests anyway...")
+            
         # Store memories and display internal state after each insertion
         print("\n===== Storing Memories =====")
         print("\n----- Storing Climate Change Content -----")
@@ -533,9 +573,9 @@ async def main():
         await test_store_memory(client, session_id, content6)
         await display_lightrag_state(client, session_id)
         
-        # Wait a moment for indexing to complete
-        print("\nWaiting for indexing to complete...")
-        await asyncio.sleep(5)  # Increased from 2 to 5 seconds for better indexing
+        # Wait for indexing and entity extraction to complete
+        print("\nWaiting for indexing and entity extraction to complete...")
+        await asyncio.sleep(2)  # Increased from 5 to 2 seconds to allow entity extraction to finish
         
         # Test basic memory retrieval with expected keywords
         print("\n===== Basic Memory Retrieval =====")

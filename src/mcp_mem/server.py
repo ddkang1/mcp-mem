@@ -113,12 +113,18 @@ async def retrieve_memory(session_id: str, query: str, limit: Optional[int] = No
     search_mode = getattr(config, "default_search_mode", "hybrid")
     logger.debug(f"Using search mode: {search_mode}")
     
-    result = await lightrag_instance.query(
-        query_text=query,
+    # Import QueryParam for proper parameter structure
+    from lightrag import QueryParam
+    
+    # Create QueryParam object with all the parameters
+    param = QueryParam(
         mode=search_mode,  # Use configured search mode
         top_k=limit,
         only_need_context=True,  # We only need the context, not the LLM response
     )
+    
+    # Call aquery with query as first argument and param as named parameter
+    result = await lightrag_instance.aquery(query, param=param)
     
     # Check if the result already contains memories
     logger.debug(f"Query result from memory storage: {result}")
@@ -294,6 +300,44 @@ async def configure_memory(
         "message": "Configuration updated successfully" if updates else "Current configuration retrieved",
         "configuration": safe_config
     }
+
+@mcp.tool()
+async def clear_memory_storage(session_id: str) -> Dict[str, Any]:
+    """Clear all data from the memory storage for a session.
+    
+    This tool removes all documents, entities, and relationships from the memory storage,
+    effectively resetting it to an empty state. This is useful for starting fresh or
+    cleaning up after tests.
+    
+    Args:
+        session_id: Unique identifier for the session to clear.
+        
+    Returns:
+        Dict containing operation status.
+    """
+    # Get or create LightRAG instance
+    lightrag_instance = await lightrag_manager.get(session_id)
+    
+    # Update session access time
+    update_session_access(session_id)
+    
+    # Clear storage
+    result = await lightrag_instance.clear_storage()
+    logger.info(f"Cleared storage for session {session_id}")
+    
+    # Ensure the result is JSON serializable
+    try:
+        # Try to convert to JSON and back to ensure it's serializable
+        json.dumps(result)
+        return result
+    except TypeError:
+        # If not serializable, create a simplified version
+        simplified_result = {
+            "status": "success",
+            "message": f"Storage cleared for session {session_id}",
+            "session_id": session_id
+        }
+        return simplified_result
 
 @mcp.tool()
 async def get_lightrag_state(session_id: str) -> Dict[str, Any]:

@@ -5,6 +5,7 @@ Interface for LightRAG instances.
 import abc
 import logging
 from typing import Any, Dict, List, Optional, Union
+from .custom_llm import gpt_4o_mini_complete, openai_embed
 
 logger = logging.getLogger(__name__)
 
@@ -129,22 +130,13 @@ class DirectLightRAG(LightRAGInterface):
         # Create LightRAG working directory if it doesn't exist
         os.makedirs(self.session_path, exist_ok=True)
         
-        # Define a custom embedding function with proper attributes
-        @wrap_embedding_func_with_attrs(embedding_dim=1536, max_token_size=8192)
-        async def custom_embedding_func(texts):
-            """Custom embedding function that returns random vectors."""
-            logger.debug(f"Generating embedding for: {texts[:50] if isinstance(texts, str) else f'{len(texts)} texts'}...")
-            if isinstance(texts, list):
-                return np.random.rand(len(texts), 1536).astype(np.float32)
-            else:
-                return np.random.rand(1536).astype(np.float32)
+        # Extract addon_params from config if available
+        addon_params = self.config.get("addon_params", {
+            "language": "English",
+            "entity_types": ["PERSON", "ORGANIZATION", "LOCATION", "DATE", "EVENT", "CONCEPT"],
+            "example_number": 3  # Number of examples to use for entity extraction
+        })
         
-        # Simple LLM function
-        async def simple_llm_func(prompt, system_prompt=None, history_messages=None, **kwargs):
-            logger.debug(f"Processing prompt: {prompt[:50]}...")
-            return f"Response to: {prompt[:30]}..."
-        
-        # Create a real LightRAG instance
         self.lightrag = LightRAG(
             working_dir=self.session_path,
             # Use default storage types
@@ -157,9 +149,11 @@ class DirectLightRAG(LightRAGInterface):
             chunk_overlap_token_size=100,
             tiktoken_model_name="gpt-4o-mini",
             # Use our custom embedding function
-            embedding_func=custom_embedding_func,
+            embedding_func=openai_embed,
             # Use our simple LLM function
-            llm_model_func=simple_llm_func
+            llm_model_func=gpt_4o_mini_complete,
+            # Add entity extraction configuration
+            addon_params=addon_params
         )
         
         # Initialize LightRAG storages
@@ -169,6 +163,52 @@ class DirectLightRAG(LightRAGInterface):
         await initialize_pipeline_status()
         
         logger.info(f"Initialized LightRAG instance at {self.session_path}")
+    
+    async def clear_storage(self) -> Dict[str, Any]:
+        """
+        Clear all data from the LightRAG instance.
+        
+        This method drops all documents, entities, and relationships from storage.
+        
+        Returns:
+            Dict containing operation status
+        """
+        try:
+            # Drop document status data
+            if hasattr(self.lightrag, 'doc_status') and hasattr(self.lightrag.doc_status, 'drop'):
+                await self.lightrag.doc_status.drop()
+                logger.info(f"Cleared document status data for {self.session_path}")
+            
+            # Drop entity data if available
+            if hasattr(self.lightrag, 'entities_vdb') and hasattr(self.lightrag.entities_vdb, 'drop'):
+                await self.lightrag.entities_vdb.drop()
+                logger.info(f"Cleared entity data for {self.session_path}")
+            
+            # Drop relationship data if available
+            if hasattr(self.lightrag, 'relationships_vdb') and hasattr(self.lightrag.relationships_vdb, 'drop'):
+                await self.lightrag.relationships_vdb.drop()
+                logger.info(f"Cleared relationship data for {self.session_path}")
+            
+            # Drop chunk data if available
+            if hasattr(self.lightrag, 'chunks_vdb') and hasattr(self.lightrag.chunks_vdb, 'drop'):
+                await self.lightrag.chunks_vdb.drop()
+                logger.info(f"Cleared chunk data for {self.session_path}")
+            
+            # Drop knowledge graph if available
+            if hasattr(self.lightrag, 'chunk_entity_relation_graph') and hasattr(self.lightrag.chunk_entity_relation_graph, 'drop'):
+                await self.lightrag.chunk_entity_relation_graph.drop()
+                logger.info(f"Cleared knowledge graph for {self.session_path}")
+            
+            return {
+                "status": "success",
+                "message": f"All storage cleared for {self.session_path}"
+            }
+        except Exception as e:
+            logger.error(f"Error clearing storage: {e}")
+            return {
+                "status": "error",
+                "message": f"Error clearing storage: {e}"
+            }
     
     async def finalize(self) -> None:
         """Finalize the LightRAG instance."""
@@ -196,40 +236,158 @@ class DirectLightRAG(LightRAGInterface):
             return {"status": "error", "message": "LightRAG instance not initialized"}
         
         try:
-            # Get basic stats about the memory store
-            doc_count = len(getattr(self.lightrag, 'memory_store', {}))
+            # Get document count using status counts
+            status_counts = await self.lightrag.doc_status.get_status_counts()
+            doc_count = sum(status_counts.values())
             
-            # Create a simplified representation of the memory store
+            # Get processed documents
+            from lightrag.base import DocStatus
+            processed_docs = await self.lightrag.doc_status.get_docs_by_status(DocStatus.PROCESSED)
+            
+            # Create a simplified representation of the documents
             memory_store_preview = {}
-            for doc_id, content in list(getattr(self.lightrag, 'memory_store', {}).items())[:10]:
-                preview = content[:100] + "..." if len(content) > 100 else content
+            for doc_id, doc_status in list(processed_docs.items())[:10]:
+                content = getattr(doc_status, 'content', '')
+                preview = content[:100] + "..." if content and len(content) > 100 else content
                 memory_store_preview[doc_id] = preview
+                
+            # Wait for indexing and entity extraction to complete
+            import asyncio
+            logger.info("Waiting for indexing and entity extraction to complete...")
+            await asyncio.sleep(2)  # Increased from 2 to 2 seconds to allow entity extraction to finish
             
             # Get knowledge graph directly from LightRAG
             logger.debug("Getting knowledge graph from LightRAG instance")
-            kg = await self.lightrag.get_knowledge_graph("*", max_depth=2, max_nodes=20)
             
-            # Extract entities from nodes
-            entities = [
-                {
-                    "entity_name": node.id,
-                    "entity_type": node.labels[0] if node.labels else "unknown",
-                    "description": node.properties.get("description", ""),
-                    "source": node.properties.get("source", "")
-                }
-                for node in kg.nodes
-            ]
+            # Try different methods to extract entities and relationships
+            entities = []
+            relationships = []
             
-            # Extract relationships from edges
-            relationships = [
-                {
-                    "source": edge.source,
-                    "target": edge.target,
-                    "type": edge.type or "unknown",
-                    "description": edge.properties.get("description", "")
-                }
-                for edge in kg.edges
-            ]
+            # Method 1: Use get_knowledge_graph
+            try:
+                logger.debug("Attempting to get knowledge graph with get_knowledge_graph")
+                kg = await self.lightrag.get_knowledge_graph("*", max_depth=5, max_nodes=100)
+                logger.debug(f"Knowledge graph retrieved: {kg}")
+                logger.debug(f"Nodes: {len(kg.nodes)}, Edges: {len(kg.edges)}")
+                
+                # Extract entities from nodes
+                entities = [
+                    {
+                        "entity_name": node.id,
+                        "entity_type": node.labels[0] if node.labels else "unknown",
+                        "description": node.properties.get("description", ""),
+                        "source": node.properties.get("source", "")
+                    }
+                    for node in kg.nodes
+                ]
+                
+                # Extract relationships from edges
+                relationships = [
+                    {
+                        "source": edge.source,
+                        "target": edge.target,
+                        "type": edge.type or "unknown",
+                        "description": edge.properties.get("description", "")
+                    }
+                    for edge in kg.edges
+                ]
+                
+                logger.info(f"Method 1: Retrieved {len(entities)} entities and {len(relationships)} relationships")
+            except Exception as e:
+                logger.warning(f"Error using get_knowledge_graph: {e}")
+            
+            # Method 2: Try to access entity and relationship storage directly
+            if hasattr(self.lightrag, 'entities_vdb'):
+                try:
+                    logger.debug(f"Attempting to access entities_vdb directly: {self.lightrag.entities_vdb}")
+                    # Try to get all entities from vector database
+                    entity_data = {}
+                    if hasattr(self.lightrag.entities_vdb, 'get_all'):
+                        logger.debug("entities_vdb has get_all method, calling it")
+                        entity_data = await self.lightrag.entities_vdb.get_all()
+                        logger.debug(f"Entity data retrieved: {len(entity_data)} items")
+                    
+                    # Process entity data
+                    for entity_id, entity_info in entity_data.items():
+                        entity = {
+                            "entity_name": entity_info.get("entity_name", "Unknown"),
+                            "entity_type": entity_info.get("entity_type", "Unknown"),
+                            "description": entity_info.get("content", "").replace(entity_info.get("entity_name", "") + "\n", ""),
+                            "source": entity_info.get("source_id", "")
+                        }
+                        entities.append(entity)
+                    
+                    logger.info(f"Method 2: Retrieved {len(entities)} entities from vector database")
+                except Exception as e:
+                    logger.warning(f"Error accessing entities_vdb: {e}")
+            
+            # Try to get relationships from vector database
+            if hasattr(self.lightrag, 'relationships_vdb'):
+                try:
+                    logger.debug(f"Attempting to access relationships_vdb directly: {self.lightrag.relationships_vdb}")
+                    # Try to get all relationships from vector database
+                    rel_data = {}
+                    if hasattr(self.lightrag.relationships_vdb, 'get_all'):
+                        logger.debug("relationships_vdb has get_all method, calling it")
+                        rel_data = await self.lightrag.relationships_vdb.get_all()
+                        logger.debug(f"Relationship data retrieved: {len(rel_data)} items")
+                    
+                    # Process relationship data
+                    for rel_id, rel_info in rel_data.items():
+                        relationship = {
+                            "source": rel_info.get("src_id", "Unknown"),
+                            "target": rel_info.get("tgt_id", "Unknown"),
+                            "type": rel_info.get("keywords", "Unknown"),
+                            "description": rel_info.get("content", "").split("\n")[-1] if rel_info.get("content") else ""
+                        }
+                        relationships.append(relationship)
+                    
+                    logger.info(f"Method 2: Retrieved {len(relationships)} relationships from vector database")
+                except Exception as e:
+                    logger.warning(f"Error accessing relationships_vdb: {e}")
+            
+            # Method 3: Try to access chunk_entity_relation_graph directly
+            if not entities and hasattr(self.lightrag, 'chunk_entity_relation_graph'):
+                try:
+                    logger.debug(f"Attempting to access chunk_entity_relation_graph directly")
+                    
+                    # Try to get all nodes
+                    if hasattr(self.lightrag.chunk_entity_relation_graph, 'get_all_nodes'):
+                        logger.debug("chunk_entity_relation_graph has get_all_nodes method, calling it")
+                        nodes = await self.lightrag.chunk_entity_relation_graph.get_all_nodes()
+                        logger.debug(f"Nodes retrieved: {len(nodes) if nodes else 0}")
+                        
+                        # Process nodes
+                        for node_id, node_data in nodes.items():
+                            entity = {
+                                "entity_name": node_id,
+                                "entity_type": node_data.get("label", "Unknown"),
+                                "description": node_data.get("description", ""),
+                                "source": node_data.get("source", "")
+                            }
+                            entities.append(entity)
+                        
+                        logger.info(f"Method 3: Retrieved {len(entities)} entities from graph storage")
+                    
+                    # Try to get all edges
+                    if hasattr(self.lightrag.chunk_entity_relation_graph, 'get_all_edges'):
+                        logger.debug("chunk_entity_relation_graph has get_all_edges method, calling it")
+                        edges = await self.lightrag.chunk_entity_relation_graph.get_all_edges()
+                        logger.debug(f"Edges retrieved: {len(edges) if edges else 0}")
+                        
+                        # Process edges
+                        for edge_id, edge_data in edges.items():
+                            relationship = {
+                                "source": edge_data.get("source", "Unknown"),
+                                "target": edge_data.get("target", "Unknown"),
+                                "type": edge_data.get("type", "Unknown"),
+                                "description": edge_data.get("description", "")
+                            }
+                            relationships.append(relationship)
+                        
+                        logger.info(f"Method 3: Retrieved {len(relationships)} relationships from graph storage")
+                except Exception as e:
+                    logger.warning(f"Error accessing chunk_entity_relation_graph: {e}")
             
             logger.info(f"Retrieved knowledge graph with {len(entities)} entities and {len(relationships)} relationships")
             
@@ -247,6 +405,57 @@ class DirectLightRAG(LightRAGInterface):
             return {
                 "status": "error",
                 "message": f"Error getting internal state: {str(e)}"
+            }
+    
+    async def aquery(self, query_text: str, param=None) -> Dict[str, Any]:
+        """
+        Query the LightRAG instance using the aquery method.
+        
+        Args:
+            query_text: Query text as the first positional argument
+            param: QueryParam object with additional parameters
+            
+        Returns:
+            Dict containing query results
+        """
+        import logging
+        
+        logger = logging.getLogger("lightrag_interface")
+        logger.debug(f"Querying with aquery: {query_text}")
+        
+        try:
+            # Call the LightRAG aquery method
+            logger.info("Using LightRAG aquery method")
+            result = await self.lightrag.aquery(query_text, param=param)
+            
+            # Extract session ID from path
+            session_id = self.session_path.split('_')[-1] if '_' in self.session_path else "example_session"
+            
+            # Process the result
+            if isinstance(result, dict):
+                # Add session_id if not present
+                if "session_id" not in result:
+                    result["session_id"] = session_id
+                # Ensure memories field exists
+                if "memories" not in result:
+                    result["memories"] = []
+                return result
+            else:
+                # Convert non-dict result to standard format
+                return {
+                    "status": "success",
+                    "response": str(result),
+                    "session_id": session_id,
+                    "memories": []
+                }
+            
+        except Exception as e:
+            logger.error(f"Error querying: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Error querying: {str(e)}",
+                "session_id": self.session_path.split('_')[-1] if '_' in self.session_path else "example_session",
+                "memories": []
             }
     
     async def insert(self, text: Union[str, List[str]]) -> Dict[str, Any]:
@@ -338,10 +547,12 @@ class DirectLightRAG(LightRAGInterface):
         logger.debug(f"Querying with: {query_text}")
         
         try:
-            # Use the query method
+            # Use the aquery method
             logger.info("Using LightRAG query method")
-            result = await self.lightrag.query(
-                query_text=query_text,
+            from lightrag import QueryParam
+            
+            # Create QueryParam object with all the parameters
+            param = QueryParam(
                 mode=mode,
                 top_k=top_k,
                 only_need_context=only_need_context,
@@ -354,6 +565,9 @@ class DirectLightRAG(LightRAGInterface):
                 ll_keywords=ll_keywords,
                 history_turns=history_turns
             )
+            
+            # Call aquery with query_text as first argument and param as named parameter
+            result = await self.lightrag.aquery(query_text, param=param)
             
             # Extract session ID from path
             session_id = self.session_path.split('_')[-1] if '_' in self.session_path else "example_session"
@@ -412,7 +626,18 @@ class ApiLightRAG(LightRAGInterface):
         base_url = self.config.get("lightrag_api_base_url", "http://localhost:8000")
         api_key = self.config.get("lightrag_api_key")
         
-        self.client = LightRAGClient(base_url=base_url, api_key=api_key)
+        # Extract addon_params from config if available
+        addon_params = self.config.get("addon_params", {
+            "language": "English",
+            "entity_types": ["PERSON", "ORGANIZATION", "LOCATION", "DATE", "EVENT", "CONCEPT"],
+            "example_number": 3  # Number of examples to use for entity extraction
+        })
+        
+        self.client = LightRAGClient(
+            base_url=base_url,
+            api_key=api_key,
+            addon_params=addon_params
+        )
         
         # Check if the API is available
         try:
@@ -422,6 +647,42 @@ class ApiLightRAG(LightRAGInterface):
             logger.error(f"Failed to connect to LightRAG API at {base_url}: {e}")
             raise
             
+    async def clear_storage(self) -> Dict[str, Any]:
+        """
+        Clear all data from the LightRAG instance.
+        
+        This method drops all documents, entities, and relationships from storage.
+        
+        Returns:
+            Dict containing operation status
+        """
+        if not self.client:
+            return {"status": "error", "message": "LightRAG API client not initialized"}
+            
+        try:
+            # For API-based implementation, we need to call the appropriate API endpoints
+            # This is a simplified implementation that assumes the API has a clear_documents endpoint
+            try:
+                # Try to call clear_documents endpoint if available
+                await self.client.clear_documents()
+                logger.info(f"Cleared all documents for session {self.session_id}")
+                return {
+                    "status": "success",
+                    "message": f"All storage cleared for session {self.session_id}"
+                }
+            except Exception as e:
+                logger.error(f"Error clearing documents via API: {e}")
+                return {
+                    "status": "error",
+                    "message": f"Error clearing documents via API: {e}"
+                }
+        except Exception as e:
+            logger.error(f"Error clearing storage: {e}")
+            return {
+                "status": "error",
+                "message": f"Error clearing storage: {e}"
+            }
+    
     async def finalize(self) -> None:
         """Finalize the LightRAG API client."""
         if self.client:
@@ -484,6 +745,51 @@ class ApiLightRAG(LightRAGInterface):
                 "message": f"Error getting internal state: {str(e)}"
             }
             
+    async def aquery(self, query_text: str, param=None) -> Dict[str, Any]:
+        """
+        Query the LightRAG instance using the aquery method.
+        
+        Args:
+            query_text: Query text as the first positional argument
+            param: QueryParam object with additional parameters
+            
+        Returns:
+            Dict containing query results
+        """
+        if not self.client:
+            raise RuntimeError("LightRAG API client not initialized")
+            
+        try:
+            # Extract parameters from QueryParam object if provided
+            params = {}
+            if param:
+                # Convert QueryParam object to dictionary
+                params = {
+                    "mode": getattr(param, "mode", "mix"),
+                    "top_k": getattr(param, "top_k", 10),
+                    "only_need_context": getattr(param, "only_need_context", False),
+                    "only_need_prompt": getattr(param, "only_need_prompt", False),
+                    "response_type": getattr(param, "response_type", "Multiple Paragraphs"),
+                    "max_token_for_text_unit": getattr(param, "max_token_for_text_unit", 1000),
+                    "max_token_for_global_context": getattr(param, "max_token_for_global_context", 1000),
+                    "max_token_for_local_context": getattr(param, "max_token_for_local_context", 1000),
+                    "hl_keywords": getattr(param, "hl_keywords", None),
+                    "ll_keywords": getattr(param, "ll_keywords", None),
+                    "history_turns": getattr(param, "history_turns", 10),
+                }
+            
+            # Call the query method with the appropriate parameters
+            result = await self.client.query(query_text, **params)
+            return result
+        except Exception as e:
+            logger.error(f"Error querying LightRAG API: {e}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "session_id": self.session_id,
+                "memories": []
+            }
+    
     async def insert(self, text: Union[str, List[str]]) -> Dict[str, Any]:
         """
         Insert text into the LightRAG instance.
@@ -546,20 +852,24 @@ class ApiLightRAG(LightRAGInterface):
             raise RuntimeError("LightRAG API client not initialized")
             
         try:
-            result = await self.client.query(
-                query_text=query_text,
-                mode=mode,
-                top_k=top_k,
-                only_need_context=only_need_context,
-                only_need_prompt=only_need_prompt,
-                response_type=response_type,
-                max_token_for_text_unit=max_token_for_text_unit,
-                max_token_for_global_context=max_token_for_global_context,
-                max_token_for_local_context=max_token_for_local_context,
-                hl_keywords=hl_keywords,
-                ll_keywords=ll_keywords,
-                history_turns=history_turns,
-            )
+            # Create parameters dictionary for API client
+            params = {
+                "mode": mode,
+                "top_k": top_k,
+                "only_need_context": only_need_context,
+                "only_need_prompt": only_need_prompt,
+                "response_type": response_type,
+                "max_token_for_text_unit": max_token_for_text_unit,
+                "max_token_for_global_context": max_token_for_global_context,
+                "max_token_for_local_context": max_token_for_local_context,
+                "hl_keywords": hl_keywords,
+                "ll_keywords": ll_keywords,
+                "history_turns": history_turns,
+            }
+            
+            # Call the query method with the appropriate parameters
+            # Note: The API client might have a different interface than the direct LightRAG instance
+            result = await self.client.query(query_text, **params)
             return result
         except Exception as e:
             logger.error(f"Error querying LightRAG API: {e}")

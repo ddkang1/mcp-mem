@@ -229,6 +229,13 @@ class LightRAGInstanceManager:
             # API configuration
             "lightrag_api_base_url": self._config.lightrag_api_base_url,
             "lightrag_api_key": self._config.lightrag_api_key,
+            
+            # Entity extraction configuration
+            "addon_params": {
+                "language": "English",
+                "entity_types": ["PERSON", "ORGANIZATION", "LOCATION", "DATE", "EVENT", "CONCEPT"],
+                "example_number": 3  # Number of examples to use for entity extraction
+            }
         }
         
         # Create instance based on integration type
