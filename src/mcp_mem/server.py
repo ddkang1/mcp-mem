@@ -116,37 +116,86 @@ async def retrieve_memory(session_id: str, query: str, limit: Optional[int] = No
         only_need_context=True,  # We only need the context, not the LLM response
     )
     
-    # Parse the results
-    retrieved_memories = []
+    # Check if the result already contains memories
+    logger.debug(f"Query result from memory storage: {result}")
+    logger.debug(f"Query result type: {type(result)}")
+    logger.debug(f"Query result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")
     
-    try:
-        # Extract document chunks section from the response
-        if isinstance(result.get("response"), str):
-            response = result["response"]
-            # Find the document chunks section
-            chunks_section = re.search(r'-----Document Chunks\(DC\)-----\s*```json\s*(.*?)\s*```', 
-                                      response, re.DOTALL)
-            
-            if chunks_section:
-                chunks_json = chunks_section.group(1).strip()
-                chunks = json.loads(chunks_json)
+    memories_from_result = result.get("memories", []) if isinstance(result, dict) else []
+    logger.debug(f"Memories from result: {memories_from_result}")
+    logger.debug(f"Memories type: {type(memories_from_result)}")
+    logger.debug(f"Memories length: {len(memories_from_result)}")
+    
+    if isinstance(memories_from_result, list) and len(memories_from_result) > 0:
+        retrieved_memories = memories_from_result
+        logger.debug(f"Using memories from result: {retrieved_memories}")
+        
+        # Add rank to each memory if not present
+        for idx, memory in enumerate(retrieved_memories):
+            logger.debug(f"Processing memory {idx+1}: {memory}")
+            logger.debug(f"Memory type: {type(memory)}")
+            if isinstance(memory, dict):
+                if "rank" not in memory:
+                    memory["rank"] = idx + 1
+                logger.debug(f"Memory {idx+1} after processing: {memory}")
+            else:
+                logger.debug(f"Memory {idx+1} is not a dict, skipping")
+    else:
+        # Parse the results from LightRAG response
+        retrieved_memories = []
+        
+        try:
+            # Extract document chunks section from the response
+            if isinstance(result.get("response"), str):
+                response = result["response"]
+                # Find the document chunks section
+                chunks_section = re.search(r'-----Document Chunks\(DC\)-----\s*```json\s*(.*?)\s*```',
+                                          response, re.DOTALL)
                 
-                # Format the chunks as memories
-                for idx, chunk in enumerate(chunks):
-                    retrieved_memories.append({
-                        "content": chunk.get("content", ""),
-                        "score": float(chunk.get("score", idx + 1)),
-                        "rank": idx + 1
-                    })
-    except Exception as e:
-        logger.error(f"Error parsing LightRAG results: {str(e)}")
+                if chunks_section:
+                    chunks_json = chunks_section.group(1).strip()
+                    chunks = json.loads(chunks_json)
+                    
+                    # Format the chunks as memories
+                    for idx, chunk in enumerate(chunks):
+                        retrieved_memories.append({
+                            "content": chunk.get("content", ""),
+                            "score": float(chunk.get("score", idx + 1)),
+                            "rank": idx + 1
+                        })
+        except Exception as e:
+            logger.error(f"Error parsing LightRAG results: {str(e)}")
     
-    return {
+    # Force memories to be a list of dictionaries with content and score
+    if not retrieved_memories:
+        logger.debug("No memories found, returning empty list")
+    
+    # Ensure memories are properly serializable by converting to simple dictionaries
+    serializable_memories = []
+    for memory in retrieved_memories:
+        # Convert each memory to a simple dictionary with only the essential fields
+        serializable_memory = {
+            "content": str(memory.get("content", "")),
+            "score": float(memory.get("score", 0.0)),
+            "rank": int(memory.get("rank", 1))
+        }
+        serializable_memories.append(serializable_memory)
+    
+    # Create the result with serializable memories
+    result_to_return = {
         "session_id": session_id,
         "status": "success",
         "query": query,
-        "memories": retrieved_memories
+        "memories": serializable_memories
     }
+    
+    logger.debug(f"Final result to return: {result_to_return}")
+    logger.debug(f"Final memories count: {len(serializable_memories)}")
+    for idx, memory in enumerate(serializable_memories):
+        logger.debug(f"Final memory {idx+1}: {memory}")
+    
+    # Return the result as a simple dictionary that can be easily serialized
+    return result_to_return
 
 async def configure_memory(
     integration_type: Optional[str] = None,
