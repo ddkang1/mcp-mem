@@ -14,6 +14,16 @@ import logging
 import traceback
 from typing import Dict, Any, List, Optional
 from fastmcp.client.client import Client
+from mcp_mem.retrieval_evaluation import (
+    QueryType, DifficultyLevel, RetrievalQuery,
+    generate_retrieval_queries, evaluate_retrieval_system,
+    extract_memory_content, print_evaluation_results,
+    test_single_query, get_all_content,
+    # Ground truth evaluation
+    GroundTruthItem, generate_ground_truth_items,
+    test_with_ground_truth, evaluate_with_ground_truth_set,
+    print_ground_truth_evaluation_results
+)
 
 # Configure logging
 logging.basicConfig(
@@ -158,223 +168,70 @@ async def display_lightrag_state(client: Client, session_id: str) -> None:
     except Exception as e:
         logger.error(f"Error displaying LightRAG state: {e}")
 
-async def test_retrieve_memory(
-    client: Client,
-    session_id: str,
-    query: str,
-    limit: int = 3,
-    expected_keywords: List[str] = None
-) -> Dict[str, Any]:
-    """
-    Retrieve memories using the configured search mode and return the result.
-    
-    Args:
-        client: MCP client
-        session_id: Session ID
-        query: Query text
-        limit: Maximum number of memories to return
-        expected_keywords: List of keywords expected to be found in the retrieved content
-        
-    Returns:
-        Dict containing retrieval results and accuracy metrics
-    """
-    logger.info(f"Retrieving memories with query: '{query}'")
-    logger.debug(f"Session ID: {session_id}, Limit: {limit}")
-    if expected_keywords:
-        logger.debug(f"Expected keywords: {expected_keywords}")
-    
-    try:
-        # Call the retrieve_memory tool
-        result = await client.call_tool(
-            "retrieve_memory",
-            {
-                "session_id": session_id,
-                "query": query,
-                "limit": limit
-            }
-        )
-        
-        # Process the result - handle various possible formats
-        memories = []
-        
-        if isinstance(result, dict):
-            memories = result.get("memories", [])
-            logger.debug(f"Retrieved memories from dict: {len(memories)}")
-        elif isinstance(result, list):
-            # If result is a list, assume it's a list of memories
-            memories = result
-            logger.debug(f"Retrieved memories from list: {len(memories)}")
-            # Convert to standard format
-            result = {
-                "status": "success",
-                "query": query,
-                "memories": memories
-            }
-        else:
-            # Handle TextContent or other object types
-            try:
-                logger.debug(f"Processing result of type: {type(result)}")
-                logger.debug(f"Result attributes: {dir(result) if hasattr(result, '__dict__') else 'No attributes'}")
-                
-                # Try to access text attribute if it exists
-                if hasattr(result, 'text'):
-                    content = result.text
-                    logger.debug(f"Found text attribute: {content[:100]}...")
-                    # Try to parse as JSON if possible
-                    try:
-                        parsed = json.loads(content)
-                        if isinstance(parsed, dict) and "memories" in parsed:
-                            memories = parsed["memories"]
-                            logger.debug(f"Parsed JSON memories: {len(memories)}")
-                        else:
-                            memories = [{"content": content, "score": 1.0}]
-                            logger.debug("Created single memory from text content")
-                    except json.JSONDecodeError:
-                        logger.debug("Could not parse text as JSON, using as raw content")
-                        memories = [{"content": content, "score": 1.0}]
-                elif hasattr(result, 'content'):
-                    # If it has content attribute
-                    content_str = str(result.content)
-                    logger.debug(f"Found content attribute: {content_str[:100]}...")
-                    memories = [{"content": content_str, "score": 1.0}]
-                else:
-                    # Last resort: convert to string
-                    result_str = str(result)
-                    logger.debug(f"Using string representation: {result_str[:100]}...")
-                    memories = [{"content": result_str, "score": 1.0}]
-                
-                # Create a standardized result
-                result = {
-                    "status": "success",
-                    "query": query,
-                    "memories": memories
-                }
-            except Exception as e:
-                logger.warning(f"Failed to process result of type {type(result)}: {e}")
-                logger.warning(f"Exception details: {traceback.format_exc()}")
-                result = {
-                    "status": "error",
-                    "message": f"Unexpected result format: {type(result)}",
-                    "memories": []
-                }
-        
-        logger.info(f"Retrieved {len(memories)} memories")
-        
-        # Print the memories - safely access attributes
-        for i, memory in enumerate(memories):
-            try:
-                # Handle different memory formats safely
-                if isinstance(memory, dict):
-                    score = memory.get('score', 'N/A')
-                    content = memory.get("content", "")
-                elif hasattr(memory, 'score') and hasattr(memory, 'content'):
-                    score = getattr(memory, 'score', 'N/A')
-                    content = getattr(memory, 'content', "")
-                else:
-                    score = 'N/A'
-                    content = str(memory)
-                
-                if content:
-                    preview = content[:200] + "..." if len(content) > 200 else content
-                    logger.info(f"\nMemory {i+1} (Score: {score}):")
-                    logger.info(preview)
-            except Exception as e:
-                logger.warning(f"Error processing memory {i+1}: {e}")
-        
-        # Evaluate accuracy if expected keywords are provided
-        if expected_keywords and memories:
-            accuracy_metrics = {}
-            
-            # Calculate keyword match rate
-            total_keywords = len(expected_keywords)
-            matched_keywords = 0
-            matched_keyword_list = []
-            
-            # Combine all memory content for keyword search
-            all_content = ""
-            for memory in memories:
-                if isinstance(memory, dict) and "content" in memory:
-                    all_content += memory["content"].lower() + " "
-                elif hasattr(memory, "content"):
-                    all_content += str(memory.content).lower() + " "
-                else:
-                    all_content += str(memory).lower() + " "
-            
-            # Check for each expected keyword
-            for keyword in expected_keywords:
-                if keyword.lower() in all_content:
-                    matched_keywords += 1
-                    matched_keyword_list.append(keyword)
-            
-            # Calculate accuracy metrics
-            keyword_match_rate = matched_keywords / total_keywords if total_keywords > 0 else 0
-            
-            # Add metrics to result
-            accuracy_metrics = {
-                "total_keywords": total_keywords,
-                "matched_keywords": matched_keywords,
-                "matched_keyword_list": matched_keyword_list,
-                "keyword_match_rate": keyword_match_rate
-            }
-            
-            # Log accuracy metrics
-            logger.info(f"Accuracy metrics: {matched_keywords}/{total_keywords} keywords matched ({keyword_match_rate:.2%})")
-            logger.info(f"Matched keywords: {', '.join(matched_keyword_list)}")
-            
-            # Add accuracy metrics to result
-            if isinstance(result, dict):
-                result["accuracy_metrics"] = accuracy_metrics
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error retrieving memories: {e}")
-        return {"status": "error", "message": str(e), "memories": []}
+# Using the test_single_query function from the retrieval_evaluation module
 
 async def test_different_search_modes(client: Client, session_id: str, query: str) -> None:
     """Test different search modes available in LightRAG."""
     search_modes = ["hybrid", "local", "global", "mix", "naive"]
     
-    logger.info("\n===== Testing Different Search Modes =====")
+    print("\n" + "=" * 80)
+    print(f"COMPARING SEARCH MODES FOR QUERY: '{query}'")
+    print("=" * 80)
+    
+    results = {}
+    
     for mode in search_modes:
-        logger.info(f"\n----- Testing '{mode}' search mode -----")
+        print(f"\n{'-' * 30} TESTING '{mode.upper()}' MODE {'-' * 30}")
         try:
-            # Configure the memory system to use the specified mode
-            config_result = await client.call_tool(
-                "configure_memory",
-                {
-                    "search_mode": mode
-                }
-            )
-            
-            # Safely log configuration result
-            try:
-                if isinstance(config_result, dict) and "configuration" in config_result:
-                    logger.info(f"Configuration set to {mode} mode")
-                else:
-                    logger.info(f"Configuration updated for {mode} mode")
-            except Exception as e:
-                logger.debug(f"Error processing config result: {e}")
-            
-            # Retrieve memories using the configured mode with expected keywords
-            result = await test_retrieve_memory(
+            # Use the test_single_query function with the specified search mode
+            result = await test_single_query(
                 client=client,
                 session_id=session_id,
                 query=query,
-                expected_keywords=["climate", "change", "impacts", "weather", "temperature"]
+                required_concepts=["climate", "change", "impacts", "weather", "temperature"],
+                search_mode=mode
             )
             
-            # Log the number of memories retrieved - safely access memories
-            try:
-                if isinstance(result, dict) and "memories" in result:
-                    memories = result["memories"]
-                    logger.info(f"Mode '{mode}' returned {len(memories)} memories")
-                else:
-                    logger.info(f"Mode '{mode}' query completed")
-            except Exception as e:
-                logger.debug(f"Error processing result memories: {e}")
+            # Store results for comparison
+            results[mode] = {
+                "count": result["retrieved_count"],
+                "score": result["metrics"]["overall_score"],
+                "matched_concepts": len(result["matched_concepts"]),
+                "total_concepts": len(result["query"]["required_concepts"])
+            }
                 
         except Exception as e:
             logger.error(f"Error testing search mode '{mode}': {e}")
+            results[mode] = {"error": str(e)}
+    
+    # Print comparison summary
+    print("\n" + "=" * 80)
+    print("SEARCH MODE COMPARISON SUMMARY")
+    print("=" * 80)
+    
+    # Sort modes by score
+    sorted_modes = sorted(
+        [mode for mode in results if "score" in results[mode]],
+        key=lambda x: results[x]["score"],
+        reverse=True
+    )
+    
+    if sorted_modes:
+        print(f"\nBest performing mode: {sorted_modes[0].upper()} (Score: {results[sorted_modes[0]]['score']:.2f})")
+        
+        print("\nAll modes ranked by performance:")
+        for i, mode in enumerate(sorted_modes):
+            r = results[mode]
+            print(f"{i+1}. {mode.upper()}: Score {r['score']:.2f}, " +
+                  f"Concepts {r['matched_concepts']}/{r['total_concepts']}, " +
+                  f"Retrieved {r['count']} memories")
+    
+    # Print modes with errors
+    error_modes = [mode for mode in results if "error" in results[mode]]
+    if error_modes:
+        print("\nModes with errors:")
+        for mode in error_modes:
+            print(f"- {mode}: {results[mode]['error']}")
 
 async def main():
     """Main function demonstrating MCP Memory usage."""
@@ -477,54 +334,8 @@ async def main():
         # Define a session ID
         session_id = "example_session"
         
-        # Example content to store
-        content1 = """
-        Climate change is the long-term alteration of temperature and typical weather patterns in a place.
-        Climate change could refer to a particular location or the planet as a whole.
-        Climate change may cause weather patterns to be less predictable.
-        These unexpected weather patterns can make it difficult to maintain and grow crops in regions that rely on farming.
-        """
-        
-        content2 = """
-        The primary cause of climate change is human activities, particularly the burning of fossil fuels,
-        like coal, oil, and natural gas. Burning these materials releases what are called greenhouse gases into Earth's atmosphere.
-        These gases trap heat from the sun's rays inside the atmosphere causing Earth's average temperature to rise.
-        """
-        
-        content3 = """
-        Solutions to climate change include transitioning to renewable energy sources like solar and wind power,
-        improving energy efficiency in buildings and transportation, protecting and restoring forests and other ecosystems,
-        and adopting more sustainable agricultural practices. International cooperation through agreements like the Paris Climate Accord
-        aims to limit global temperature increases and address climate change impacts.
-        """
-        
-        # Additional content on different topics
-        content4 = """
-        Artificial intelligence (AI) refers to the simulation of human intelligence in machines that are programmed
-        to think and learn like humans. The term may also be applied to any machine that exhibits traits associated
-        with a human mind such as learning and problem-solving. AI can be categorized as either weak AI or strong AI.
-        Weak AI, also known as narrow AI, is designed to perform a specific task, like voice recognition.
-        Strong AI, also known as artificial general intelligence, is AI that more fully replicates the autonomy of
-        the human brain—a machine with consciousness, sentience, and mind.
-        """
-        
-        content5 = """
-        Quantum computing is an area of computing focused on developing computer technology based on the principles
-        of quantum theory. Quantum computers use quantum bits or qubits, which can exist in multiple states simultaneously,
-        allowing them to perform complex calculations at speeds unattainable by traditional computers.
-        Potential applications include cryptography, optimization problems, drug discovery, and materials science.
-        However, quantum computers are still in early development stages and face significant technical challenges.
-        """
-        
-        content6 = """
-        Renewable energy sources include solar, wind, hydroelectric, geothermal, and biomass power.
-        Unlike fossil fuels, these energy sources replenish naturally and produce minimal greenhouse gas emissions.
-        Solar power harnesses energy from the sun using photovoltaic cells or solar thermal systems.
-        Wind power captures kinetic energy from air movement using turbines. Hydroelectric power generates
-        electricity from flowing water, typically using dams. Geothermal energy taps into the Earth's internal heat.
-        Biomass energy comes from organic materials like plants and waste. The transition to renewable energy
-        is crucial for addressing climate change and creating sustainable energy systems.
-        """
+        # Get sample content from the retrieval evaluation module
+        content1, content2, content3, content4, content5, content6 = get_all_content()
         
         # Clear any existing data to start fresh
         print("\n===== Clearing Existing Memory Storage =====")
@@ -580,70 +391,76 @@ async def main():
         # Test basic memory retrieval with expected keywords
         print("\n===== Basic Memory Retrieval =====")
         query1 = "What are greenhouse gases?"
-        await test_retrieve_memory(
+        await test_single_query(
             client,
             session_id,
             query1,
-            expected_keywords=["greenhouse gases", "fossil fuels", "atmosphere", "temperature"]
+            expected_answers=["greenhouse gases are released by burning fossil fuels"],
+            required_concepts=["greenhouse gases", "fossil fuels", "atmosphere", "temperature"]
         )
         
         # Test memory retrieval with different query
         print("\n===== Memory Retrieval with Different Query =====")
         query2 = "What are solutions to climate change?"
-        await test_retrieve_memory(
+        await test_single_query(
             client,
             session_id,
             query2,
-            expected_keywords=["renewable energy", "solar", "wind", "sustainable", "Paris Climate Accord"]
+            expected_answers=["renewable energy sources", "improving energy efficiency"],
+            required_concepts=["renewable energy", "solar", "wind", "sustainable", "Paris Climate Accord"]
         )
         
         # Test memory retrieval with different limit
         print("\n===== Memory Retrieval with Different Limit =====")
         query3 = "What is climate change?"
-        await test_retrieve_memory(
+        await test_single_query(
             client,
             session_id,
             query3,
             limit=5,
-            expected_keywords=["long-term", "temperature", "weather patterns", "predictable"]
+            expected_answers=["long-term alteration of temperature and typical weather patterns"],
+            required_concepts=["long-term", "temperature", "weather patterns", "predictable"]
         )
         
         # Test retrieval of new content
         print("\n===== Testing Retrieval of AI Content =====")
         query4 = "What is artificial intelligence?"
-        await test_retrieve_memory(
+        await test_single_query(
             client,
             session_id,
             query4,
-            expected_keywords=["simulation", "human intelligence", "machines", "weak AI", "strong AI"]
+            expected_answers=["simulation of human intelligence in machines"],
+            required_concepts=["simulation", "human intelligence", "machines", "weak AI", "strong AI"]
         )
         
         print("\n===== Testing Retrieval of Quantum Computing Content =====")
         query5 = "Explain quantum computing"
-        await test_retrieve_memory(
+        await test_single_query(
             client,
             session_id,
             query5,
-            expected_keywords=["quantum", "qubits", "multiple states", "calculations", "cryptography"]
+            expected_answers=["computer technology based on the principles of quantum theory"],
+            required_concepts=["quantum", "qubits", "multiple states", "calculations", "cryptography"]
         )
         
         print("\n===== Testing Retrieval of Renewable Energy Content =====")
         query6 = "What are different types of renewable energy?"
-        await test_retrieve_memory(
+        await test_single_query(
             client,
             session_id,
             query6,
-            expected_keywords=["solar", "wind", "hydroelectric", "geothermal", "biomass"]
+            expected_answers=["solar, wind, hydroelectric, geothermal, and biomass"],
+            required_concepts=["solar", "wind", "hydroelectric", "geothermal", "biomass"]
         )
         
         print("\n===== Testing Cross-Topic Query =====")
         query7 = "How can AI help with renewable energy and climate change?"
-        await test_retrieve_memory(
+        await test_single_query(
             client,
             session_id,
             query7,
             limit=5,
-            expected_keywords=["AI", "renewable", "climate change", "energy"]
+            required_concepts=["AI", "renewable", "climate change", "energy"]
         )
         
         # Test different search modes if supported
@@ -651,6 +468,63 @@ async def main():
             await test_different_search_modes(client, session_id, "climate change impacts")
         except Exception as e:
             logger.warning(f"Could not test different search modes: {e}")
+            
+        # Test the advanced structured evaluation approach
+            print("\n===== Testing Advanced Structured Evaluation =====")
+            
+            # Generate structured retrieval queries
+            retrieval_queries = generate_retrieval_queries(
+                content1, content2, content3, content4, content5, content6
+            )
+            print(f"Generated {len(retrieval_queries)} structured retrieval queries for evaluation")
+            
+            # Run the advanced evaluation
+            advanced_results = await evaluate_retrieval_system(
+                client=client,
+                session_id=session_id,
+                queries=retrieval_queries,
+                retrieval_methods=["hybrid", "local", "global"]  # Using a subset for brevity
+            )
+            
+            # Print comprehensive summary of results using the utility function
+            print_evaluation_results(advanced_results)
+            
+            # Test the ground truth evaluation approach
+            print("\n===== Testing Ground Truth Evaluation =====")
+            
+            # Generate ground truth items
+            ground_truth_items = generate_ground_truth_items()
+            print(f"Generated {len(ground_truth_items)} ground truth items for evaluation")
+            
+            # Test a single ground truth item
+            print("\n----- Testing Single Ground Truth Item -----")
+            item = ground_truth_items[0]  # Use the first item
+            print(f"Testing query: '{item.question}'")
+            print(f"Expected context IDs: {item.context_ids}")
+            print(f"Expected context snippets: {item.context_snippets}")
+            
+            single_result = await test_with_ground_truth(
+                client=client,
+                session_id=session_id,
+                ground_truth_item=item,
+                search_mode="hybrid"
+            )
+            
+            # Run the comprehensive ground truth evaluation
+            print("\n----- Running Comprehensive Ground Truth Evaluation -----")
+            ground_truth_results = await evaluate_with_ground_truth_set(
+                client=client,
+                session_id=session_id,
+                ground_truth_items=ground_truth_items[:3],  # Use first 3 items for brevity
+                search_modes=["hybrid", "local"]  # Using a subset for brevity
+            )
+            
+            # Print ground truth evaluation results
+            print_ground_truth_evaluation_results(ground_truth_results)
+            
+        except Exception as e:
+            logger.error(f"Error in retrieval evaluation: {e}")
+            logger.error(traceback.format_exc())
         
         print("\nDisconnected from MCP Memory server")
 
