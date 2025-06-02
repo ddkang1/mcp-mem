@@ -1,25 +1,20 @@
-"""Configuration module for mcp-mem."""
+"""Configuration module for mcp-mem (LightRAG only)."""
 
 import os
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
+import lightrag.utils as lightrag_utils
 
 
 @dataclass
 class MemoryConfig:
-    """Configuration settings for the MCP Memory server."""
+    """Configuration settings for the MCP Memory server (LightRAG only)."""
     
     # Base directory for storing memory data
     memory_dir: str = os.path.expanduser("~/.mcp-mem")
     
-    # Maximum number of memories to return in retrieve_memory
+    # Maximum number of memories to return in retrieve_memory (not enforced by LightRAG)
     default_retrieve_limit: Optional[int] = None
-    
-    # HippoRAG configuration
-    hipporag_config: Dict[str, Any] = field(default_factory=dict)
-    
-    # Default metadata to include with all memories
-    default_metadata: Dict[str, Any] = field(default_factory=dict)
     
     # Session cleanup settings
     session_ttl_days: Optional[int] = None  # None means no automatic cleanup
@@ -31,15 +26,6 @@ class MemoryConfig:
     def __post_init__(self):
         """Ensure memory directory exists and set up default HippoRAG config."""
         os.makedirs(self.memory_dir, exist_ok=True)
-        
-        # Set default HippoRAG configuration if not provided
-        if not self.hipporag_config:
-            self.hipporag_config = {
-                "llm_base_url": os.environ.get("LLM_BASE_URL", None),
-                "llm_name": os.environ.get("LLM_NAME", 'gpt-4o-mini'),
-                "embedding_base_url": os.environ.get("EMBEDDING_BASE_URL", None),
-                "embedding_model_name": os.environ.get("EMBEDDING_MODEL_NAME", "text-embedding-3-large"),
-            }
 
 
 # Default configuration instance

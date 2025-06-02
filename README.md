@@ -1,150 +1,132 @@
-# MCP Memory
+# MCP Memory (Agentic, Metadata-Aware Backend)
 
-A Model Context Protocol (MCP) server implementing memory solutions for data-rich applications with efficient knowledge graph capabilities.
-
-## Overview
-
-This MCP server implements a memory solution for data-rich applications that involve searching information from many sources including uploaded files. It uses HippoRAG internally to manage memory through an efficient knowledge graph. HippoRAG is a required dependency for this package.
+This package provides a Model Context Protocol (MCP) memory server for agentic workflows, supporting persistent, shared, and metadata-rich memory for multi-agent systems.
 
 ## Features
 
-- **Session-based Memory**: Create and manage memory for specific chat sessions
-- **Efficient Knowledge Graph**: Uses HippoRAG for memory management
-- **Multiple Transport Support**: Works with both stdio and SSE transports
-- **Search Capabilities**: Search information from various sources including uploaded files
-- **Automatic Resource Management**: TTL-based cleanup for both sessions and memory instances
-
-## Installation
-
-Install from PyPI:
-
-```bash
-pip install mcp-mem hipporag
-```
-
-Or install from source:
-
-```bash
-git clone https://github.com/ddkang1/mcp-mem.git
-cd mcp-mem
-pip install -e .
-pip install hipporag
-```
-
-Note: HippoRAG is a required dependency for mcp-mem to function.
-
-## Usage
-
-You can run the MCP server directly:
-
-```bash
-mcp-mem
-```
-
-By default, it uses stdio transport. To use SSE transport:
-
-```bash
-mcp-mem --sse
-```
-
-You can also specify host and port for SSE transport:
-
-```bash
-mcp-mem --sse --host 127.0.0.1 --port 3001
-```
-
-## Configuration
-
-### Basic Configuration
-
-To use this tool with Claude in Windsurf, add the following configuration to your MCP config file:
-
-```json
-"memory": {
-    "command": "/path/to/mcp-mem",
-    "args": [],
-    "type": "stdio",
-    "pollingInterval": 30000,
-    "startupTimeout": 30000,
-    "restartOnFailure": true
-}
-```
-
-The `command` field should point to the directory where you installed the python package using pip.
-
-### Environment Variable Configuration
-
-You can configure the LLM and embedding models used by mcp-mem through environment variables:
-
-- `EMBEDDING_MODEL_NAME`: Name of the embedding model to use (default: "text-embedding-3-large")
-- `EMBEDDING_BASE_URL`: Base URL for the embedding API (optional)
-- `LLM_NAME`: Name of the LLM model to use (default: "gpt-4o-mini")
-- `LLM_BASE_URL`: Base URL for the LLM API (optional)
-- `OPENAI_API_KEY`: OpenAI API key (required)
-
-### Memory Management Configuration
-
-The server includes automatic resource management features:
-
-- **Session TTL**: Automatically removes session directories after a specified number of days of inactivity.
-  Set using the `session_ttl_days` configuration parameter (default: None - disabled).
-
-- **Instance TTL**: Automatically offloads HippoRAG instances from memory after a specified period of inactivity.
-  Set using the `instance_ttl_minutes` configuration parameter (default: 30 minutes).
-  
-  This feature helps manage memory usage by unloading inactive instances while preserving the underlying data.
-  When an offloaded instance is accessed again, it will be automatically reloaded from disk.
-
-Example usage:
-
-```bash
-EMBEDDING_MODEL_NAME="your-model" LLM_NAME="your-llm" mcp-mem
-```
-
-For convenience, you can use the provided example script:
-
-```bash
-./examples/run_with_env_vars.sh
-```
+- Session-based, persistent memory for agentic workflows
+- Store and retrieve content with rich metadata (agent, type, tags, timestamp)
+- Advanced querying and filtering (by agent, type, tags, time range)
+- Summarization tool for context window management
+- Tools for updating and deleting memory entries
+- Designed for multi-agent, collaborative, and context-aware AI applications
 
 ## Available Tools
 
-The MCP server provides the following tools:
+### `store_memory`
+Store a memory entry (with optional metadata) in persistent, shared session memory.
 
-- **create_memory**: Create a new memory for a given chat session
-- **store_memory**: Add memory to a specific session
-- **retrieve_memory**: Retrieve memory from a specific session
+**Parameters:**
+- `session_id` (str): Unique session or workflow ID
+- `content` (str): Text content to store
+- `metadata` (dict, optional): Additional metadata (e.g., tags, custom fields)
+- `source_agent` (str, optional): Name of the agent/tool storing this entry
+- `message_type` (str, optional): Type of message (e.g., 'user', 'tool', 'summary')
+- `timestamp` (str, optional): ISO8601 timestamp (auto-set if not provided)
 
-## Development
-
-### Installation for Development
-
-```bash
-git clone https://github.com/ddkang1/mcp-mem.git
-cd mcp-mem
-pip install -e ".[dev]"
+**Example:**
+```python
+await store_memory(
+    session_id="workflow-abc",
+    content="User approved deployment to production.",
+    source_agent="approval_agent",
+    message_type="decision",
+    metadata={"tags": ["approval", "prod"]}
+)
 ```
 
-### Running Tests
+### `retrieve_memory`
+Retrieve memory entries with advanced filtering.
 
-```bash
-pytest
+**Parameters:**
+- `session_id` (str): Unique session or workflow ID
+- `query` (str): Query string (keyword, phrase, or question)
+- `limit` (int, optional): Max results
+- `source_agent` (str, optional): Filter by agent/tool
+- `message_type` (str, optional): Filter by message type
+- `tags` (list of str, optional): Filter by tags
+- `start_time` (str, optional): ISO8601 start time
+- `end_time` (str, optional): ISO8601 end time
+
+**Example:**
+```python
+result = await retrieve_memory(
+    session_id="workflow-abc",
+    query="deployment approval",
+    source_agent="approval_agent",
+    tags=["prod"],
+    start_time="2024-01-01T00:00:00Z"
+)
+print(result["result"])
 ```
 
-### Code Style
+### `summarize_memory`
+Summarize session memory to preserve key context for agentic workflows.
 
-This project uses Black for formatting, isort for import sorting, and flake8 for linting:
+**Parameters:**
+- `session_id` (str): Unique session or workflow ID
+- `query` (str, optional): Focus summary on specific topics
+- `max_tokens` (int, optional): Max tokens for summary
 
-```bash
-black src tests
-isort src tests
-flake8 src tests
+**Example:**
+```python
+result = await summarize_memory(
+    session_id="workflow-abc",
+    query="deployment decisions",
+    max_tokens=256
+)
+print(result["summary"])
 ```
 
-## Contributing
+### `delete_memory`
+Delete memory entries by ID or advanced filters.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+**Parameters:**
+- `session_id` (str): Unique session or workflow ID
+- `entry_id` (str, optional): ID of entry to delete
+- `query` (str, optional): Query string to match entries
+- `source_agent` (str, optional): Filter by agent/tool
+- `message_type` (str, optional): Filter by message type
+- `tags` (list of str, optional): Filter by tags
+- `start_time` (str, optional): ISO8601 start time
+- `end_time` (str, optional): ISO8601 end time
+
+**Example:**
+```python
+result = await delete_memory(
+    session_id="workflow-abc",
+    query="outdated info",
+    source_agent="old_agent"
+)
+print(result["deleted_count"])
+```
+
+### `update_memory`
+Update memory entry content or metadata by entry ID.
+
+**Parameters:**
+- `session_id` (str): Unique session or workflow ID
+- `entry_id` (str): ID of entry to update
+- `new_content` (str, optional): New content
+- `new_metadata` (dict, optional): New metadata to merge/replace
+
+**Example:**
+```python
+result = await update_memory(
+    session_id="workflow-abc",
+    entry_id="5",
+    new_content="Corrected info."
+)
+print(result["status"])
+```
+
+## Agentic Memory for Multi-Agent Workflows
+
+This server is designed for agentic, multi-agent, and collaborative AI workflows. It supports:
+- Persistent, shared memory across agents
+- Rich metadata for provenance, type, and context
+- Advanced querying and summarization for scalable, context-aware applications
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT

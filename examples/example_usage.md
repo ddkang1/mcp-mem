@@ -1,40 +1,27 @@
-# Example Usage of the MCP Memory Tool
+# Example Usage of the MCP Memory Tool (LightRAG Backend)
 
-This document demonstrates how to use the MCP Memory tool effectively in various scenarios.
-
-## Basic Setup
-
-First, install the package with its required dependency:
-
-```bash
-pip install mcp-mem hipporag
-```
-
-Then, you can run the server:
-
-```bash
-mcp-mem
-```
+This document demonstrates how to use the MCP Memory tool with LightRAG as the backend.
 
 ## Example 1: Creating and Using Session Memory
 
 When an LLM needs to maintain memory across interactions:
 
-```
-Human: Let me tell you about my project. I'm building a web application using React and Node.js.
+```python
+from mcp_mem.server import store_memory, retrieve_memory
 
-LLM: I'll remember that you're building a web application using React and Node.js.
+# Store memory
+await store_memory(session_id="user123", content="User is building a web application using React and Node.js")
 
-[LLM uses the create_memory tool]
-create_memory(session_id="user123")
-Result: {"session_id": "user123", "status": "created", "message": "Memory for session user123 created successfully"}
-
-[LLM uses the store_memory tool]
-store_memory(session_id="user123", content="User is building a web application using React and Node.js", metadata={"topic": "project", "technologies": ["React", "Node.js"]})
-Result: {"session_id": "user123", "memory_id": "mem123", "status": "stored", "message": "Memory stored successfully in session user123"}
+# Retrieve memory
+result = await retrieve_memory(session_id="user123", query="React")
+print(result["result"])
 ```
 
-## Example 2: Retrieving Memory
+## Example 2: Session Cleanup
+
+Session data is automatically cleaned up based on TTL settings in the config.
+
+## Example 3: Retrieving Memory
 
 When an LLM needs to recall information from previous interactions:
 
@@ -60,7 +47,7 @@ Result: {
 LLM: You were working on building a web application using React and Node.js. Would you like to continue discussing that project?
 ```
 
-## Example 3: Searching Memory
+## Example 4: Searching Memory
 
 When an LLM needs to find specific information:
 
