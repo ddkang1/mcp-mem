@@ -33,10 +33,8 @@ def create_mock_embedding_func():
 
 
 # Mock LLM function for tests
-async def mock_llm_func(*args, **kwargs):
+async def mock_llm_func(prompt, system_prompt=None, history_messages=None, hashing_kv=None, **kwargs):
     """Mock LLM function that returns simple responses for testing."""
-    # Extract prompt from args or kwargs
-    prompt = args[0] if args else kwargs.get('prompt', '')
     
     # Return a simple response that includes some content from the prompt
     # LightRAG expects structured JSON responses for some operations
@@ -59,28 +57,34 @@ def setup_lightrag_with_mocks(monkeypatch):
     # Force LightRAG storage (not InMemory!)
     monkeypatch.setenv("MEMORY_STORAGE_TYPE", "lightrag")
     
-    # Mock the LightRAG storage to use our test functions
-    mock_embedding = create_mock_embedding_func()
+    # Check if real LLM/embedding environment variables are provided
+    has_real_llm = bool(os.getenv("LLM_BASE_URL") and os.getenv("OPENAI_API_KEY"))
+    has_real_embedding = bool(os.getenv("EMBEDDING_BASE_URL") and os.getenv("OPENAI_API_KEY"))
     
-    # Patch the LightRAGStorage to use our mocked functions
-    def mock_lightrag_storage_init(self, embedding_func=None, llm_func=None):
-        """Mock constructor that uses test functions."""
+    # Only use mocks if real services are not configured
+    if not (has_real_llm and has_real_embedding):
+        # Mock the LightRAG storage to use our test functions
+        mock_embedding = create_mock_embedding_func()
+        
+        # Patch the LightRAGStorage to use our mocked functions
+        def mock_lightrag_storage_init(self, embedding_func=None, llm_func=None):
+            """Mock constructor that uses test functions."""
+            from mcp_mem.lightrag_storage import LightRAGStorage
+            from mcp_mem.instance_manager import LightRAGInstanceManager
+            
+            # Use our test functions
+            self.embedding_func = mock_embedding
+            self.llm_func = mock_llm_func
+            
+            # Create instance manager with test functions
+            self.instance_manager = LightRAGInstanceManager(
+                embedding_func=self.embedding_func,
+                llm_func=self.llm_func
+            )
+        
+        # Patch the LightRAGStorage.__init__ method
         from mcp_mem.lightrag_storage import LightRAGStorage
-        from mcp_mem.instance_manager import LightRAGInstanceManager
-        
-        # Use our test functions
-        self.embedding_func = mock_embedding
-        self.llm_func = mock_llm_func
-        
-        # Create instance manager with test functions
-        self.instance_manager = LightRAGInstanceManager(
-            embedding_func=self.embedding_func,
-            llm_func=self.llm_func
-        )
-    
-    # Patch the LightRAGStorage.__init__ method
-    from mcp_mem.lightrag_storage import LightRAGStorage
-    monkeypatch.setattr(LightRAGStorage, '__init__', mock_lightrag_storage_init)
+        monkeypatch.setattr(LightRAGStorage, '__init__', mock_lightrag_storage_init)
     
     # Re-import the server module to pick up the new configuration
     import importlib
