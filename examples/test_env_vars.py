@@ -9,13 +9,15 @@ import json
 from mcp_mem.config import get_config
 
 def main():
-    """Print the current HippoRAG configuration with environment variables."""
+    """Print the current LightRAG configuration with environment variables."""
     # Get the current configuration
     config = get_config()
     
-    # Print the HippoRAG configuration
-    print("Current HippoRAG configuration:")
-    print(json.dumps(config.hipporag_config, indent=2))
+    # Print the LightRAG configuration
+    print("Current LightRAG configuration:")
+    print("Memory directory:", config.memory_dir)
+    print("Instance TTL minutes:", config.instance_ttl_minutes)
+    print("Default retrieve limit:", config.default_retrieve_limit)
     
     # Print environment variables
     print("\nEnvironment variables:")

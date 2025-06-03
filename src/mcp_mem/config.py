@@ -20,11 +20,11 @@ class MemoryConfig:
     session_ttl_days: Optional[int] = None  # None means no automatic cleanup
     
     # Instance TTL settings (in minutes)
-    # After this period of inactivity, hipporag instances will be offloaded from memory
+    # After this period of inactivity, LightRAG instances will be offloaded from memory
     instance_ttl_minutes: int = 30  # Default 30 minutes
     
     def __post_init__(self):
-        """Ensure memory directory exists and set up default HippoRAG config."""
+        """Ensure memory directory exists and set up default LightRAG config."""
         os.makedirs(self.memory_dir, exist_ok=True)
 
 

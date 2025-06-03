@@ -45,11 +45,6 @@ if __name__ == "__main__":
         help="Directory to store memory data (default: ~/.mcp-mem)",
     )
     parser.add_argument(
-        "--disable-hipporag",
-        action="store_true",
-        help="Disable HippoRAG and use basic memory storage",
-    )
-    parser.add_argument(
         "--retrieve-limit",
         type=int,
         default=None,
@@ -64,8 +59,6 @@ if __name__ == "__main__":
     if args.memory_dir:
         config_updates["memory_dir"] = args.memory_dir
     
-    if args.disable_hipporag:
-        config_updates["use_hipporag"] = False
     
     if args.retrieve_limit:
         config_updates["default_retrieve_limit"] = args.retrieve_limit

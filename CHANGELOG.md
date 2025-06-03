@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2025-04-21
 
 ### Added
-- TTL-based automatic cleanup for HippoRAG instances
-- New `HippoRAGInstanceManager` class for managing instances with TTL
+- TTL-based automatic cleanup for LightRAG instances
+- New `LightRAGInstanceManager` class for managing instances with TTL
 - New `instance_ttl_minutes` configuration parameter (default: 30 minutes)
 - Improved memory management by offloading inactive instances while preserving data
 
@@ -20,18 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2025-04-21
 
 ### Changed
+- **BREAKING**: Replaced HippoRAG with LightRAG as the backend
 - **BREAKING**: Removed all fallback mechanisms and backward compatibilities
-- **BREAKING**: HippoRAG is now strictly required with no fallback to basic memory storage
-- **BREAKING**: Removed `use_hipporag` configuration option
-- Updated tests to reflect the removal of fallback mechanisms
-- Updated documentation to clarify HippoRAG dependency requirements
+- **BREAKING**: LightRAG is now strictly required with no fallback to basic memory storage
+- Updated tests to reflect the new LightRAG backend
+- Updated documentation to clarify LightRAG dependency requirements
 
 ## [0.1.0] - 2025-04-19
 
 ### Added
 - Initial release of mcp-mem
 - Session-based memory management
-- Integration with HippoRAG for knowledge graph capabilities
+- Integration with LightRAG for knowledge graph capabilities
 - Basic memory storage and retrieval
 - Memory search functionality
 - Configuration system

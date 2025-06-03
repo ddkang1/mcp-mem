@@ -13,7 +13,7 @@ setup(
         "mcp>=1.2.0",
         "uvicorn>=0.15.0",
         "starlette>=0.17.1",
-        "hipporag @ git+https://github.com/ddkang1/HippoRAG.git@474ae76bac27c7f9e60f9cf443f9ab41d7183ee7"
+        "lightrag-hku"
     ],
     extras_require={
         "dev": [
