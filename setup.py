@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="mcp-mem",
-    version="0.3.2",
+    version="0.3.3",
     description="An MCP server providing permanent, unlimited AI memory storage to overcome context limitations",
     author="Don Kang",
     author_email="donkang34@gmail.com",
